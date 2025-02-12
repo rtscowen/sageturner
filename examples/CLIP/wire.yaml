@@ -1,0 +1,11 @@
+artifact: path/to/x.pt #maybe??
+python-version: 
+deps:
+  system: sys.txt
+  python: requirements.txt
+code:
+  predict: predict.py:(method)
+  batch: TODO
+  train: TODO
+env:
+  ABC_123: "TEST"
