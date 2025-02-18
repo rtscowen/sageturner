@@ -1,11 +1,13 @@
 use argh::FromArgs;
 
 use anyhow::Result;
+use aws_sdk_sagemaker::types::{builders::ContainerDefinitionBuilder, ContainerDefinition};
 use base64::prelude::*;
 use bollard::{auth::DockerCredentials, image::{PushImageOptions, TagImageOptions}, Docker};
 use futures_util::StreamExt;
 
 mod docker;
+mod aws;
 
 #[derive(Debug, FromArgs, PartialEq)]
 #[argh(description="SimpleSage gets your models to AWS SageMaker in one step")]
@@ -49,6 +51,8 @@ async fn main() -> Result<()> {
     let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
     let sage_client = aws_sdk_sagemaker::Client::new(&config);
     let ecr_client = aws_sdk_ecr::Client::new(&config);
+    let iam_client = aws_sdk_iam::Client::new(&config);
+    let s3_client = aws_sdk_iam::Client::new(&config);
 
     let docker = docker::get_client().await; 
 
@@ -60,24 +64,14 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn process_deploy(ecr_client: &aws_sdk_ecr::Client, sage_client: &aws_sdk_sagemaker::Client, docker_client: &Docker, deploy_params: &Deploy) -> Result<()> {
+async fn process_deploy(ecr_client: &aws_sdk_ecr::Client, sage_client: &aws_sdk_sagemaker::Client, docker_client: &Docker, iam_client: &aws_sdk_iam::Client, s3_client: &aws_sdk_s3::Client, deploy_params: &Deploy) -> Result<()> {
     println!("Deploying model located at: {}", &deploy_params.wire_file);
     docker::build_image(&deploy_params.dockerfile, docker_client, &deploy_params.repo_name).await?; 
     docker::push_image(docker_client, ecr_client, &deploy_params.repo_name).await?;
-    
-    // // Create a model, specifying this container
-    // client.create_model().containers(input)
-    
-    // // Reference the container as a production variant in the endpoint config (serverless)
-    // let production_variants: Vec<String> = vec![]
-    
-    
-    // client.create_endpoint_config()
-    //     .set_endpoint_config_name(Some("endpoint_1".to_string()))
-    //     .set_production_variants(input);
-    
-    // // Create the endpoint 
-    // client.create_endpoint();
+    aws::create_sagemaker_role("simplesage-role", iam_client).await?;
+    aws::create_sagemaker_bucket("simplesage-sagemaker", s3_client).await?;
+    aws::create_sagemaker_model("TestModel", "simplesage-role", "container_image", sage_client).await?;
+    aws::create_serverless_endpoint(endpoint_name, model_name, memory_size, max_concurrency, sage_client).await?;
     Ok(())
 }
 

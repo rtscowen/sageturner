@@ -9,6 +9,8 @@ use tar::Builder;
 
 use futures_util::stream::StreamExt;
 
+use crate::aws::get_docker_credentials_for_ecr;
+
 pub async fn get_client() -> Docker {
     Docker::connect_with_socket_defaults().unwrap()
 }
@@ -85,7 +87,7 @@ pub async fn push_image(docker: &Docker, ecr_client: &aws_sdk_ecr::Client, repo_
     let push_options = Some(PushImageOptions::<String> {
         tag: "latest".to_string()
     });
-    let credentials = get_docker_credentials(ecr_client).await?;
+    let credentials = get_docker_credentials_for_ecr(ecr_client).await?;
     let mut push_stream = docker.push_image(&uri, push_options, Some(credentials));
 
     while let Some(stream) = push_stream.next().await {
@@ -94,28 +96,4 @@ pub async fn push_image(docker: &Docker, ecr_client: &aws_sdk_ecr::Client, repo_
         println!("{:?}", progess)
     }
     Ok(())
-}
-
-async fn get_docker_credentials(ecr_client: &aws_sdk_ecr::Client) -> Result<DockerCredentials> {
-    println!("Getting Docker Credentials ");
-    // assume default registry
-    let ecr_auth = ecr_client.get_authorization_token()
-        .send()
-        .await?;
-
-    let token = ecr_auth.authorization_data()[0].authorization_token().ok_or_else(|| anyhow!("Couldn't read auth token"))?;
-    let decoded_token = BASE64_STANDARD.decode(token)?;
-
-    let parts: Vec<_> = decoded_token.split(|c| *c == b':').collect(); // split at : for user:password
-    let username = String::from_utf8(parts[0].to_vec()).unwrap();
-    let password = String::from_utf8(parts[1].to_vec()).unwrap();
-
-    let endpoint = ecr_auth.authorization_data()[0].proxy_endpoint().ok_or_else(|| anyhow!("Couldn't read proxy endpoint"))?;
-
-    Ok(DockerCredentials{
-        username: Some(username),
-        password: Some(password),
-        serveraddress: Some(endpoint.to_string()),
-        ..Default::default()
-    })
 }

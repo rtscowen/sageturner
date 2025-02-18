@@ -1,11 +1,14 @@
-artifact: path/to/x.pt #maybe??
-python-version: 
-deps:
-  system: sys.txt
-  python: requirements.txt
-code:
-  predict: predict.py:(method)
-  batch: TODO
-  train: TODO
-env:
-  ABC_123: "TEST"
+artifact: path/to/x.pt # artifact that gets put to S3 bucket
+docker-dir: path/to/dir/with/Dockerfile
+dockerfile-name: NameIfNotDockerfile
+sagemaker:
+  bucket: /name/of/custom/bucket #create if not exist
+  role: /name/of/custome/role  # create if not exist 
+# python-version: 
+# deps:
+#   system: sys.txt
+#   python: requirements.txt
+# code:
+#   predict: predict.py:(method)
+# env:
+#   ABC_123: "TEST"
