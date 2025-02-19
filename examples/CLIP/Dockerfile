@@ -18,18 +18,17 @@ RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86
 
 # Pyenv 
 ENV HOME=/home/root 
-RUN curl -fsSL https://pyenv.run | bash
+RUN curl -fsSL https://pyenv.run | sh
 ENV PYENV_ROOT=${HOME}/.pyenv
 ENV PATH=${PYENV_ROOT}/shims:${PYENV_ROOT}/bin:$PATH
 
 # Python
 RUN pyenv --version
 RUN pyenv install 3.12
-RUN pyenv global 3.12.9 
-RUN python3 --version
+RUN pyenv global 3.12
 
 ### install python packages
-RUN pip install fastapi[standard] 
+RUN pip install fastapi[standard]
 RUN pip install ftfy regex tqdm
 RUN pip install git+https://github.com/openai/CLIP.git
 
@@ -42,7 +41,7 @@ ENV PATH="${PATH}:/opt/program/"
 COPY serve.py /opt/program/
 WORKDIR /opt/program/
 
-### set entrypoint; will get 'serve' or 'train' as an argument on startup. how does this play with fastapi??
+### set entrypoint; will get 'serve' as arg when started for inference. serve.py deals with 
 ENTRYPOINT [ "python", "serve.py" ]
 
 
