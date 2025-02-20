@@ -1,4 +1,4 @@
-// currently must be in same directory as dockerfile
+// CONSTRAINT: currently must be in same directory as dockerfile
 pub fn get_serve_code(filename: &str) -> String {
     let content = format!(r#"
     import {} as user_code_file
