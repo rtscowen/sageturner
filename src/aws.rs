@@ -7,10 +7,15 @@
 // have default buckets and default roles that it creates; 
 // in the wire file, allow an override bucket and role 
 
+use std::path::Path;
+
 use anyhow::{anyhow, Result};
+use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_sagemaker::types::{builders::ProductionVariantServerlessConfigBuilder, ContainerDefinition, ModelInput, ProductionVariant, ProductionVariantServerlessConfig};
 use base64::prelude::*;
 use bollard::auth::DockerCredentials;
+use flate2::{write::GzEncoder, Compression};
+use tar::Builder;
 
 pub async fn create_sagemaker_role(role_name: &str, client: &aws_sdk_iam::Client) -> Result<String> {
     // Define the trust policy
@@ -118,11 +123,21 @@ pub async fn get_docker_credentials_for_ecr(ecr_client: &aws_sdk_ecr::Client) ->
     })
 }
 
-pub async fn create_sagemaker_model(model_name: &str, execution_role_arn: &str, container_image: &str, sage_client: &aws_sdk_sagemaker::Client) -> Result<()> {
-    let container = ContainerDefinition::builder()
-        .image(container_image)
-        .model_data_url(input)
-        .build();
+pub async fn create_sagemaker_model(model_name: &str, execution_role_arn: &str, container_image: &str, sage_client: &aws_sdk_sagemaker::Client, model_data_url: Option<String>) -> Result<()> {
+    let container: ContainerDefinition;
+    match model_data_url {
+        Some(u) => {
+            container = ContainerDefinition::builder()
+                .image(container_image)
+                .model_data_url(u)
+                .build();
+        },
+        None => {
+            container = ContainerDefinition::builder()
+                .image(container_image)
+                .build();
+        },
+    }
 
     sage_client.create_model()
         .set_model_name(Some(model_name.to_string()))
@@ -140,14 +155,14 @@ pub async fn create_serverless_endpoint(
     max_concurrency: i32,
     sage_client: &aws_sdk_sagemaker::Client
 ) -> Result<()> {
-
+    println!("Creating serverless endpoint {}. Might take a few mins.", endpoint_name);
     let serverless_config = ProductionVariantServerlessConfig::builder()
         .max_concurrency(max_concurrency)
         .memory_size_in_mb(memory_size)
         .build();
 
     let production_variant = ProductionVariant::builder()
-        .variant_name("variant-1")
+        .variant_name("sageturner-variant-1")
         .model_name(model_name)
         .serverless_config(serverless_config)
         .build();
@@ -166,6 +181,60 @@ pub async fn create_serverless_endpoint(
         .send()
         .await?;
 
-    println!("Serverless endpoint {} created successfully", endpoint_name);
+    println!("Serverless endpoint {} created successfully. It may take a few mins to go live.", endpoint_name);
     Ok(())
+}
+
+pub async fn create_server_endpoint(endpoint_name: &str, model_name: &str, instance_type: &str, initial_instance_count: i32, sage_client: &aws_sdk_sagemaker::Client) -> Result<()> {
+    println!("Creating server endpoint {}. Might take a few mins.", endpoint_name);
+    let production_variant = ProductionVariant::builder()
+        .variant_name("sageturner-variant-1")
+        .model_name(model_name)
+        .instance_type(instance_type.into())
+        .initial_instance_count(initial_instance_count)
+        .build();
+
+    let endpoint_config_name = format!("{}-config", endpoint_name);
+
+    sage_client.create_endpoint_config()
+        .endpoint_config_name(&endpoint_config_name)
+        .production_variants(production_variant)
+        .send()
+        .await?;
+
+    sage_client.create_endpoint()
+        .endpoint_name(endpoint_name)
+        .endpoint_config_name(&endpoint_config_name)
+        .send()
+        .await?;
+
+    println!("Server endpoint {} created successfully. It may take a few mins to go live.", endpoint_name);
+    Ok(())
+}
+
+pub async fn upload_artefact(object_path: &str, bucket_name: &str, s3_key: &str, s3_client: &aws_sdk_s3::Client) -> Result<String> {
+    if !is_tar_gz(object_path) {
+        return Err(anyhow!("Artefact needs to be a .tar.gz file (ask perplexity how to create one, if you're not sure"));
+    }
+    let body = ByteStream::from_path(Path::new(object_path)).await?;
+    s3_client
+        .put_object()
+        .bucket(bucket_name)
+        .key(s3_key)
+        .body(body)
+        .send()
+        .await?;
+
+    let s3_path = format!("s3://{}/{}", bucket_name, s3_key);
+    Ok(s3_path)
+}
+
+fn is_tar_gz(file_path: &str) -> bool {
+    Path::new(file_path)
+        .extension()
+        .map_or(false, |ext| ext == "gz")
+        && Path::new(file_path)
+        .file_stem()
+        .and_then(|stem| Path::new(stem).extension())
+        .map_or(false, |ext| ext == "tar")
 }

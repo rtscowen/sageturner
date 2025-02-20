@@ -13,6 +13,8 @@ aws-sdk-s3 = "1.76.0"
 aws-sdk-sagemaker = "1.101.0"
 base64 = "0.22.1"
 bollard = "0.18.1"
+chrono = "0.4.39"
+flate2 = "1.0.35"
 futures-util = "0.3.31"
 serde = {version="1.0.217", features=["derive"]}
 serde_yaml = "0.9.34"

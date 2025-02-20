@@ -1,9 +1,8 @@
 use std::{collections::HashMap, fs::File, io::{Read, Write}};
 
-use anyhow::{anyhow, Result, Context};
-use aws_sdk_ecr::{error::SdkError, operation::describe_repositories::DescribeRepositoriesError};
-use base64::prelude::*;
-use bollard::{auth::DockerCredentials, image::{BuildImageOptions, PushImageOptions, TagImageOptions}, secret::{BuildInfo, ImageId}, Docker};
+use anyhow::{anyhow, Result};
+use aws_sdk_ecr::operation::describe_repositories::DescribeRepositoriesError;
+use bollard::{image::{BuildImageOptions, PushImageOptions, TagImageOptions}, secret::{BuildInfo, ImageId}, Docker};
 use tempfile::tempdir; 
 use tar::Builder;
 
@@ -16,7 +15,7 @@ pub async fn get_client() -> Docker {
 }
 
 pub async fn build_image_byo(path: &str, docker: &Docker, repo_name: &str) -> Result<()> {
-    println!("Building docker image at {path}, to repo {repo_name}");
+    println!("Building your docker image at {path}, as {repo_name}:latest");
     let temp_dir = tempdir()?;
 
     let tar_path = temp_dir.path().join("archive_byo.tar");
@@ -71,7 +70,7 @@ pub async fn build_image_ez_mode(gpu: bool, extra_python: &str, extra_system: &s
 
     let python_path = tempdir.path().join("serve.py");
     let mut python_file = File::create(python_path)?;
-    python_file.write_all(serve_code.as_bytes());
+    python_file.write_all(serve_code.as_bytes())?;
 
     let tar_path = tempdir.path().join("archive_ez.tar");
     let tar_file = File::create(&tar_path)?;
@@ -146,7 +145,6 @@ pub async fn push_image(docker: &Docker, ecr_client: &aws_sdk_ecr::Client, image
         tag: "latest".to_string()
     });
     let credentials = get_docker_credentials_for_ecr(ecr_client).await?;
-    let endpoint = credentials.serveraddress.ok_or_else(|| anyhow!("Error reading server endpoint from credentials. Needed for subsequent step. Raise an issue"))?;
     let mut push_stream = docker.push_image(&uri, push_options, Some(credentials));
 
     while let Some(stream) = push_stream.next().await {
@@ -165,6 +163,7 @@ fn cpu_dockerfile() -> String {
     ARG PYTHON_VERSION="3.12"
     ARG EXTRA_PYTHON_PACKAGES
     ARG EXTRA_SYSTEM_PACKAGES
+    ARG LOAD_AND_PREDICT_SCRIPT_PATH
 
     RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
         build-essential libssl-dev zlib1g-dev \
@@ -196,6 +195,7 @@ fn cpu_dockerfile() -> String {
     ENV PYTHONDONTWRITEBYTECODE=TRUE
     ENV PATH="${PATH}:/opt/program/"
 
+    COPY ${LOAD_AND_PREDICT_SCRIPT_PATH} /opt/program/
     COPY serve.py /opt/program/
     WORKDIR /opt/program/
 
@@ -212,6 +212,7 @@ fn gpu_dockerfile() -> String {
     ARG PYTHON_VERSION="3.12"
     ARG EXTRA_PYTHON_PACKAGES
     ARG EXTRA_SYSTEM_PACKAGES
+    ARG LOAD_AND_PREDICT_SCRIPT_PATH 
 
     RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
         build-essential libssl-dev zlib1g-dev \
@@ -251,6 +252,7 @@ fn gpu_dockerfile() -> String {
     ENV PATH="${PATH}:/opt/program/"
 
     COPY serve.py /opt/program/
+    COPY ${LOAD_AND_PREDICT_SCRIPT_PATH} /opt/program/
     WORKDIR /opt/program/
 
     ENTRYPOINT [ "python", "serve.py" ]

@@ -23,7 +23,7 @@ pub struct ModelConfig {
 }
 
 #[derive(Debug, Deserialize)]
-struct Deployment {
+pub struct Deployment {
     // Configuration for smart mode deploy 
     pub smart_deploy: Option<SmartDeployConfig>,
     // Configuration for a docker mode deploy
@@ -31,7 +31,7 @@ struct Deployment {
 }
 
 #[derive(Debug, Deserialize)]
-struct SmartDeployConfig {
+pub struct SmartDeployConfig {
     // A path to a Python script containing a load() and predict() function. We call these functions from a
     // template serve.py file. This option is for smart mode deploys only
     pub code: String,
@@ -55,20 +55,20 @@ fn default_python() -> String {
 }
 
 #[derive(Debug, Deserialize)]
-struct DockerDeployConfig {
+pub struct DockerDeployConfig {
     // If bringing your own Dockerfile, provide the directory where we can find the Dockerfile and artefacts to build.
     // We bundle everything in that directory to a TAR as part of the build process, so paths referenced in Docker COPY commands needs to work in that directory 
     pub docker_dir: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct Compute {
+pub struct Compute {
     pub serverless: Option<ServerlessCompute>,
     pub server_compute: Option<ServerCompute>
 }
 
 #[derive(Debug, Deserialize)]
-struct ServerlessCompute {
+pub struct ServerlessCompute {
     // Memory required by servless instance
     pub memory: i32,
     // Provisioned servless instances at all times 
@@ -79,13 +79,14 @@ struct ServerlessCompute {
 }
 
 #[derive(Debug, Deserialize)]
-struct ServerCompute {
+pub struct ServerCompute {
     // AWS EC2 instance type 
-    pub instance: String,
+    pub instance_type: String,
+    pub initial_instance_count: i32,
 }
 
 #[derive(Debug, Deserialize)]
-struct Overrides {
+pub struct Overrides {
     pub bucket: Option<String>,
     pub role: Option<String>
 }

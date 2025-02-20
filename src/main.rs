@@ -3,10 +3,12 @@ use std::str::FromStr;
 use argh::FromArgs;
 use anyhow::{anyhow, Result};
 use bollard::Docker;
+use chrono::{DateTime, Utc};
 
 mod docker;
 mod aws;
 mod model_config;
+mod pyserve;
 
 #[derive(Debug, FromArgs, PartialEq)]
 #[argh(description="Sageturner deploys your models to Amazon SageMaker in one command.")]
@@ -116,65 +118,125 @@ async fn process_deploy(ecr_client: &aws_sdk_ecr::Client,
                         -> Result<()> {
     println!("Deploying model with config at {} to {} endpoint, {} deployment mode", &deploy_params.model_config, &deploy_params.endpoint_type, &deploy_params.mode);
 
-    let model_config = model_config::parse_config(deploy_params.model_config.into())?;
+    // TODO - unclone this 
+    let model_config = model_config::parse_config(deploy_params.model_config.clone().into())?;
     model_config::validate_config(&model_config, &deploy_params.endpoint_type, &deploy_params.mode)?;
 
-    // container_mode 
-
-    // EZ Mode vs user supplied docker file
-    match model_config.code {
-        Some(_) => {
-            let code_location = model_config.code.ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?;
-            let python_packages = model_config.python_packages.ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?;
-            let system_packages = model_config.system_packages.ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?;
-            let serve_code = "blah blah blah";
-            println!("You didn't select a Dockerfile, dynamically building one (GPU: {}, inference code: {}", model_config.compute.gpu, code_location);
-            docker::build_image_ez_mode(model_config.compute.gpu, &python_packages, &system_packages, &model_config.name, &serve_code, docker_client).await?;
-        },
-        None => {
-            let docker_dir = model_config.docker_dir.ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue."))?;
-            println!("You brought your own Dockerfile, at: {}", docker_dir);
+    // Generate dockerfile & build, or build the supplied dockerfile 
+    match deploy_params.mode {
+        DeploymentMode::Docker => {
+            let docker_dir = model_config
+                .deployment.docker_deploy
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue."))?
+                .docker_dir;
             docker::build_image_byo(&docker_dir, docker_client, &model_config.name).await?;
         },
+        DeploymentMode::Smart => {
+            let code_location = &model_config
+                .deployment
+                .smart_deploy
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .code;
+            let python_packages = &model_config
+                .deployment
+                .smart_deploy
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .python_packages;
+            let system_packages = &model_config
+                .deployment
+                .smart_deploy
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .system_packages;
+            let serve_code = pyserve::get_serve_code(code_location);
+            let gpu = model_config
+                .deployment
+                .smart_deploy
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .install_cuda;
+
+            // TODO - unclone this 
+            let python_packages_str = python_packages.clone().unwrap_or(Vec::<String>::new()).join(" ");
+            let system_packages_str = system_packages.clone().unwrap_or(Vec::<String>::new()).join(" ");
+            docker::build_image_ez_mode(gpu, &python_packages_str, &system_packages_str, &model_config.name, &serve_code, docker_client).await?;
+        },
     }
 
-    let endpoint = docker::push_image(docker_client, ecr_client, &model_config.name).await?;
-    let uri = format!("{endpoint}:latest");
-    let exec_role_arn: String;
-    // TODO make this nicer with if/else let pattern matching in setting the bucket/role names then just have a single call to each function since each is idempotent wrt to name
-    if let Some(overrides) = model_config.sagemaker_overrides {
-        let should_override_bucket: bool = false;
-        let should_override_role: bool = false; 
-        if let Some(_) = overrides.bucket {
-            should_override_bucket = true;
-        }
-        if let Some(_) = overrides.role {
-            should_override_role = true;
-        }
-        if should_override_bucket && should_override_role {
-            // override both
-            let bucket_name = overrides.bucket.ok_or_else(|| anyhow!("Something went wrong with our config parsing. Raise an issue"))?;
-            let role_name = overrides.role.ok_or_else(|| anyhow!("Something went wrong with our config parsing. Raise an issue"))?;
-            exec_role_arn = aws::create_sagemaker_role(&role_name, iam_client).await?;
-            aws::create_sagemaker_bucket(&bucket_name, s3_client).await?;
-        } else if should_override_bucket {
-            // override bucket and use default for role
-            let bucket_name = overrides.bucket.ok_or_else(|| anyhow!("Something went wrong with our config parsing. Raise an issue"))?;
-            aws::create_sagemaker_bucket(&bucket_name, s3_client).await?;
-            exec_role_arn = aws::create_sagemaker_role("Sageturner-role", iam_client).await?;
-        } else if should_override_role {
-            // override role and use default for bucket 
-            let role_name = overrides.role.ok_or_else(|| anyhow!("Something went wrong with our config parsing. Raise an issue"))?;
-            aws::create_sagemaker_bucket("Sageturner-sagemaker", s3_client).await?;
-            exec_role_arn = aws::create_sagemaker_role(&role_name, iam_client).await?;
-        }
-    } else {
-        exec_role_arn = aws::create_sagemaker_role("Sageturner-role", iam_client).await?;
-        aws::create_sagemaker_bucket("Sageturner-sagemaker", s3_client).await?; // needs to have sagemaker in it for policy
+    let repo_endpoint = docker::push_image(docker_client, ecr_client, &model_config.name).await?;
+    let uri = format!("{repo_endpoint}:latest");
+
+    let mut bucket_name = "Sageturner-sagemaker".to_string();
+    let mut execution_role_name = "Sageturner-role".to_string();
+
+    // TODO - unclone this
+    match model_config.sagemaker_overrides {
+        Some(o) => {
+            match o.bucket {
+                Some(b) => bucket_name = b.clone(),
+                None => {},
+            }
+            match o.role {
+                Some(r) => execution_role_name = r.clone(),
+                None => {},
+            }
+        },
+        None => {},
     }
 
-    aws::create_sagemaker_model(&model_config.name, &exec_role_arn, &uri, sage_client).await?;
+    let exec_role_arn = aws::create_sagemaker_role(&execution_role_name, iam_client).await?;
+    aws::create_sagemaker_bucket(&bucket_name, s3_client).await?;
 
-    aws::create_serverless_endpoint(endpoint_name, model_name, memory_size, max_concurrency, sage_client).await?;
+    // Upload a model artefact if we have it
+    match model_config.artefact {
+        Some(a) => {
+            let utc_now: DateTime<Utc> = Utc::now();
+            let s3_key = format!("{}/{}/{}", &model_config.name, utc_now, a);
+            let s3_path = aws::upload_artefact(&a, &bucket_name, &s3_key, s3_client).await?;
+            aws::create_sagemaker_model(&model_config.name, &exec_role_arn, &uri, sage_client, Some(s3_path)).await?;
+        },
+        None => {
+            // No artefact to put on S3
+            aws::create_sagemaker_model(&model_config.name, &exec_role_arn, &uri, sage_client, None).await?;
+        },
+    }
+
+    let endpoint_name = format!("{}-sageturner-endpoint", &model_config.name);
+    match deploy_params.endpoint_type {
+        EndpointType::Serverless => {
+            let memory = model_config
+                .compute
+                .serverless
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .memory;
+            let max_concurrency = model_config
+                .compute
+                .serverless
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .max_concurrency;
+            aws::create_serverless_endpoint(&endpoint_name, &model_config.name, memory, max_concurrency, sage_client).await?;
+        },
+        EndpointType::Server => {
+            let instance_type = model_config
+                .compute
+                .server_compute
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .instance_type
+                .clone();
+            let initial_instance_count = model_config
+                .compute
+                .server_compute
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .initial_instance_count;
+            aws::create_server_endpoint(&endpoint_name, &model_config.name, &instance_type, initial_instance_count, sage_client).await?;
+        },
+    }
+    println!("Sageturner done!");
     Ok(())
 }
