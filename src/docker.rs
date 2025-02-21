@@ -64,6 +64,7 @@ pub async fn build_image_byo(path: &str, docker: &Docker, repo_name: &str) -> Re
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn build_image_ez_mode(
     gpu: bool,
     extra_python: &str,
@@ -71,6 +72,8 @@ pub async fn build_image_ez_mode(
     name: &str,
     serve_code: &str,
     docker_client: &Docker,
+    python_version: &str,
+    code_location: &str
 ) -> Result<()> {
     println!("Building dynamically generated image, with Python packages {}, and system packages {}, and your serve code", extra_python, extra_system);
     let dockerfile_contents = if gpu {
@@ -103,6 +106,9 @@ pub async fn build_image_ez_mode(
     let mut build_args = HashMap::new();
     build_args.insert("EXTRA_PYTHON_PACKAGES", extra_python);
     build_args.insert("EXTRA_SYSTEM_PACKAGES", extra_system);
+    build_args.insert("PYTHON_VERSION", python_version);
+    build_args.insert("LOAD_AND_PREDICT_SCRIPT_PATH", code_location);
+    
 
     let options = BuildImageOptions {
         dockerfile: "Dockerfile",
@@ -204,8 +210,8 @@ fn cpu_dockerfile() -> String {
     SHELL ["/bin/bash", "-c"]
 
     ARG PYTHON_VERSION="3.12"
-    ARG EXTRA_PYTHON_PACKAGES
-    ARG EXTRA_SYSTEM_PACKAGES
+    ARG EXTRA_PYTHON_PACKAGES=""
+    ARG EXTRA_SYSTEM_PACKAGES=""
     ARG LOAD_AND_PREDICT_SCRIPT_PATH
 
     RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
@@ -253,9 +259,9 @@ fn gpu_dockerfile() -> String {
     SHELL ["/bin/bash", "-c"]
 
     ARG PYTHON_VERSION="3.12"
-    ARG EXTRA_PYTHON_PACKAGES
-    ARG EXTRA_SYSTEM_PACKAGES
-    ARG LOAD_AND_PREDICT_SCRIPT_PATH 
+    ARG EXTRA_PYTHON_PACKAGES=""
+    ARG EXTRA_SYSTEM_PACKAGES=""
+    ARG LOAD_AND_PREDICT_SCRIPT_PATH
 
     RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
         build-essential libssl-dev zlib1g-dev \

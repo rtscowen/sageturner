@@ -176,7 +176,7 @@ async fn process_deploy(
                 .smart_deploy
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
-                .code;
+                .code.as_str();
             let python_packages = &model_config
                 .deployment
                 .smart_deploy
@@ -196,6 +196,12 @@ async fn process_deploy(
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .install_cuda;
+            let python_version = model_config
+                .deployment
+                .smart_deploy
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .python_version.clone();
 
             // TODO - unclone this
             let python_packages_str = python_packages
@@ -213,6 +219,8 @@ async fn process_deploy(
                 &model_config.name,
                 &serve_code,
                 docker_client,
+                &python_version,
+                code_location // TODO fix this unecessary auto deref 
             )
             .await?;
         }
@@ -276,11 +284,18 @@ async fn process_deploy(
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .max_concurrency;
+            let provisioned_concurrency = model_config
+                .compute
+                .serverless
+                .as_ref()
+                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
+                .provisioned_concurrency;
             aws::create_serverless_endpoint(
                 &endpoint_name,
                 &model_config.name,
                 memory,
                 max_concurrency,
+                provisioned_concurrency,
                 sage_client,
             )
             .await?;

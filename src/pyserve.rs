@@ -15,7 +15,7 @@ pub fn get_serve_code(filename: &str) -> String {
             raise HTTPException(status_code=500, detail="Error")
     @app.post('/invocations')
     def predict(request):
-        response = predict(request)
+        response = user_code_file.predict(request)
         return response
     if __name__ == "__main__":
          config = uvicorn.Config("serve:app", port=8080)

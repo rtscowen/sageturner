@@ -44,7 +44,7 @@ pub async fn create_sagemaker_role(
         },
         Err(err) => match err.into_service_error() {
             aws_sdk_iam::operation::create_role::CreateRoleError::EntityAlreadyExistsException(
-                entity_already_exists_exception,
+                _,
             ) => {
                 println!("Role with that name already exists, getting role ARN and returning early to avoid duplicate policy attachment.");
                 match client.get_role().role_name(role_name).send().await {
@@ -122,20 +122,19 @@ pub async fn create_sagemaker_model(
     sage_client: &aws_sdk_sagemaker::Client,
     model_data_url: Option<String>,
 ) -> Result<()> {
-    let container: ContainerDefinition;
-    match model_data_url {
+    let container = match model_data_url {
         Some(u) => {
-            container = ContainerDefinition::builder()
+            ContainerDefinition::builder()
                 .image(container_image)
                 .model_data_url(u)
-                .build();
+                .build()
         }
         None => {
-            container = ContainerDefinition::builder()
+            ContainerDefinition::builder()
                 .image(container_image)
-                .build();
+                .build()
         }
-    }
+    };
 
     sage_client
         .create_model()
@@ -152,6 +151,7 @@ pub async fn create_serverless_endpoint(
     model_name: &str,
     memory_size: i32,
     max_concurrency: i32,
+    provisioned_concurrency: i32,
     sage_client: &aws_sdk_sagemaker::Client,
 ) -> Result<()> {
     println!(
@@ -161,6 +161,7 @@ pub async fn create_serverless_endpoint(
     let serverless_config = ProductionVariantServerlessConfig::builder()
         .max_concurrency(max_concurrency)
         .memory_size_in_mb(memory_size)
+        .provisioned_concurrency(provisioned_concurrency)
         .build();
 
     let production_variant = ProductionVariant::builder()
@@ -258,9 +259,9 @@ pub async fn upload_artefact(
 fn is_tar_gz(file_path: &str) -> bool {
     Path::new(file_path)
         .extension()
-        .map_or(false, |ext| ext == "gz")
+        .is_some_and(|ext| ext == "gz")
         && Path::new(file_path)
             .file_stem()
             .and_then(|stem| Path::new(stem).extension())
-            .map_or(false, |ext| ext == "tar")
+            .is_some_and(|ext| ext == "tar")
 }

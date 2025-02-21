@@ -1018,16 +1018,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "flate2"
-version = "1.0.35"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c936bfdafb507ebbf50b8074c54fa31c5be9a1e7e5f467dd659697041407d07c"
-dependencies = [
- "crc32fast",
- "miniz_oxide",
-]
-
-[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1957,6 +1947,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ea1a2d0a644769cc99faa24c3ad26b379b786fe7c36fd3c546254801650e6dd"
 
 [[package]]
+name = "sageturner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argh",
+ "aws-config",
+ "aws-sdk-ecr",
+ "aws-sdk-iam",
+ "aws-sdk-s3",
+ "aws-sdk-sagemaker",
+ "base64 0.22.1",
+ "bollard",
+ "chrono",
+ "futures-util",
+ "serde",
+ "serde_yaml",
+ "tar",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2166,30 +2178,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "simplesage"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argh",
- "aws-config",
- "aws-sdk-ecr",
- "aws-sdk-iam",
- "aws-sdk-s3",
- "aws-sdk-sagemaker",
- "base64 0.22.1",
- "bollard",
- "chrono",
- "flate2",
- "futures-util",
- "serde",
- "serde_yaml",
- "subst",
- "tar",
- "tempfile",
- "tokio",
-]
-
-[[package]]
 name = "slab"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2241,16 +2229,6 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
-
-[[package]]
-name = "subst"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33e7942675ea19db01ef8cf15a1e6443007208e6c74568bd64162da26d40160d"
-dependencies = [
- "memchr",
- "unicode-width",
-]
 
 [[package]]
 name = "subtle"
@@ -2506,12 +2484,6 @@ name = "unicode-ident"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a210d160f08b701c8721ba1c726c11662f877ea6b7094007e1ca9a1041945034"
-
-[[package]]
-name = "unicode-width"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
 
 [[package]]
 name = "unsafe-libyaml"

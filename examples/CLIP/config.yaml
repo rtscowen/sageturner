@@ -1,5 +1,5 @@
-##### alternatively run simplesage deploy -a artifact.pt -c predict.py ### dockerfiles are handled for you 
-### simplesage deploy -c config.yaml 
+##### alternatively run sageturner deploy -a artifact.pt -c predict.py ### dockerfiles are handled for you 
+### sageturner deploy -c config.yaml 
 #### an easy mode config 
 name: CLIP-Sagemaker # name for the model you wish to deploy; this will be used to name your Sagemaker resources 
 artefact: path/to/x.pt # model artifact; gets put on S3 and then loaded into /opt/model by sagemaker

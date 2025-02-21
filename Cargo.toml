@@ -1,5 +1,5 @@
 [package]
-name = "simplesage"
+name = "sageturner"
 version = "0.1.0"
 edition = "2021"
 
@@ -14,11 +14,9 @@ aws-sdk-sagemaker = "1.101.0"
 base64 = "0.22.1"
 bollard = "0.18.1"
 chrono = "0.4.39"
-flate2 = "1.0.35"
 futures-util = "0.3.31"
 serde = {version="1.0.217", features=["derive"]}
 serde_yaml = "0.9.34"
-subst = "0.3.7"
 tar = "0.4.43"
 tempfile = "3.16.0"
 tokio = { version = "1.43.0", features = ["full"] }
