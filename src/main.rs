@@ -1,20 +1,20 @@
 use std::str::FromStr;
 
-use argh::FromArgs;
 use anyhow::{anyhow, Result};
+use argh::FromArgs;
 use bollard::Docker;
 use chrono::{DateTime, Utc};
 
-mod docker;
 mod aws;
+mod docker;
 mod model_config;
 mod pyserve;
 
 #[derive(Debug, FromArgs, PartialEq)]
-#[argh(description="Sageturner deploys your models to Amazon SageMaker in one command.")]
+#[argh(description = "Sageturner deploys your models to Amazon SageMaker in one command.")]
 struct SageturnerCLI {
     #[argh(subcommand)]
-    nested: SageturnerSubCommands
+    nested: SageturnerSubCommands,
 }
 
 #[derive(Debug, FromArgs, PartialEq)]
@@ -24,22 +24,34 @@ enum SageturnerSubCommands {
 }
 
 #[derive(Debug, FromArgs, PartialEq)]
-#[argh(subcommand, name="deploy", description="Deploy models to Sagemaker endpoints")]
+#[argh(
+    subcommand,
+    name = "deploy",
+    description = "Deploy models to Sagemaker endpoints"
+)]
 struct Deploy {
-    #[argh(option, short='e', description="the type of endpoint for deployment (serverless or server)")]
-    endpoint_type: EndpointType, 
+    #[argh(
+        option,
+        short = 'e',
+        description = "the type of endpoint for deployment (serverless or server)"
+    )]
+    endpoint_type: EndpointType,
 
-    #[argh(option, short='m', description="sageturner deployment mode: docker (supply your own dockerfile) or smart (sageturner builds one for you)")]
+    #[argh(
+        option,
+        short = 'm',
+        description = "sageturner deployment mode: docker (supply your own dockerfile) or smart (sageturner builds one for you)"
+    )]
     mode: DeploymentMode,
 
-    #[argh(option, short='c', description="path to sageturner.yaml")]
-    model_config: String
+    #[argh(option, short = 'c', description = "path to sageturner.yaml")]
+    model_config: String,
 }
 
 #[derive(Debug, PartialEq)]
 enum EndpointType {
     Serverless,
-    Server
+    Server,
 }
 
 impl FromStr for EndpointType {
@@ -49,7 +61,10 @@ impl FromStr for EndpointType {
         match s.to_lowercase().as_str() {
             "serverless" => Ok(EndpointType::Serverless),
             "server" => Ok(EndpointType::Server),
-            _ => Err(anyhow!("Invalid endpoint type. serverless or server only, not: {}", s))
+            _ => Err(anyhow!(
+                "Invalid endpoint type. serverless or server only, not: {}",
+                s
+            )),
         }
     }
 }
@@ -65,8 +80,8 @@ impl std::fmt::Display for EndpointType {
 
 #[derive(Debug, PartialEq)]
 enum DeploymentMode {
-    Docker, 
-    Smart
+    Docker,
+    Smart,
 }
 
 impl FromStr for DeploymentMode {
@@ -76,7 +91,10 @@ impl FromStr for DeploymentMode {
         match s.to_lowercase().as_str() {
             "smart" => Ok(DeploymentMode::Smart),
             "docker" => Ok(DeploymentMode::Docker),
-            _ => Err(anyhow!("Invalid deployment type. docker or smart, not: {}", s))
+            _ => Err(anyhow!(
+                "Invalid deployment type. docker or smart, not: {}",
+                s
+            )),
         }
     }
 }
@@ -92,7 +110,7 @@ impl std::fmt::Display for DeploymentMode {
 
 #[::tokio::main]
 async fn main() -> Result<()> {
-    let cmd : SageturnerCLI = argh::from_env();
+    let cmd: SageturnerCLI = argh::from_env();
 
     let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
     let sage_client = aws_sdk_sagemaker::Client::new(&config);
@@ -103,34 +121,55 @@ async fn main() -> Result<()> {
     let docker = docker::get_client().await;
 
     match cmd.nested {
-        SageturnerSubCommands::Deploy(deploy) => process_deploy(&ecr_client, &sage_client, &docker, &iam_client, &s3_client, &deploy).await?,
+        SageturnerSubCommands::Deploy(deploy) => {
+            process_deploy(
+                &ecr_client,
+                &sage_client,
+                &docker,
+                &iam_client,
+                &s3_client,
+                &deploy,
+            )
+            .await?
+        }
     }
 
     Ok(())
 }
 
-async fn process_deploy(ecr_client: &aws_sdk_ecr::Client, 
-                        sage_client: &aws_sdk_sagemaker::Client, 
-                        docker_client: &Docker, 
-                        iam_client: &aws_sdk_iam::Client, 
-                        s3_client: &aws_sdk_s3::Client, 
-                        deploy_params: &Deploy) 
-                        -> Result<()> {
-    println!("Deploying model with config at {} to {} endpoint, {} deployment mode", &deploy_params.model_config, &deploy_params.endpoint_type, &deploy_params.mode);
+async fn process_deploy(
+    ecr_client: &aws_sdk_ecr::Client,
+    sage_client: &aws_sdk_sagemaker::Client,
+    docker_client: &Docker,
+    iam_client: &aws_sdk_iam::Client,
+    s3_client: &aws_sdk_s3::Client,
+    deploy_params: &Deploy,
+) -> Result<()> {
+    println!(
+        "Deploying model with config at {} to {} endpoint, {} deployment mode",
+        &deploy_params.model_config, &deploy_params.endpoint_type, &deploy_params.mode
+    );
 
-    // TODO - unclone this 
+    // TODO - unclone this
     let model_config = model_config::parse_config(deploy_params.model_config.clone().into())?;
-    model_config::validate_config(&model_config, &deploy_params.endpoint_type, &deploy_params.mode)?;
+    model_config::validate_config(
+        &model_config,
+        &deploy_params.endpoint_type,
+        &deploy_params.mode,
+    )?;
 
-    // Generate dockerfile & build, or build the supplied dockerfile 
+    // Generate dockerfile & build, or build the supplied dockerfile
     match deploy_params.mode {
         DeploymentMode::Docker => {
             let docker_dir = model_config
-                .deployment.docker_deploy
-                .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue."))?
+                .deployment
+                .docker_deploy
+                .ok_or_else(|| {
+                    anyhow!("Something went wrong with our validation. Raise an issue.")
+                })?
                 .docker_dir;
             docker::build_image_byo(&docker_dir, docker_client, &model_config.name).await?;
-        },
+        }
         DeploymentMode::Smart => {
             let code_location = &model_config
                 .deployment
@@ -158,11 +197,25 @@ async fn process_deploy(ecr_client: &aws_sdk_ecr::Client,
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .install_cuda;
 
-            // TODO - unclone this 
-            let python_packages_str = python_packages.clone().unwrap_or(Vec::<String>::new()).join(" ");
-            let system_packages_str = system_packages.clone().unwrap_or(Vec::<String>::new()).join(" ");
-            docker::build_image_ez_mode(gpu, &python_packages_str, &system_packages_str, &model_config.name, &serve_code, docker_client).await?;
-        },
+            // TODO - unclone this
+            let python_packages_str = python_packages
+                .clone()
+                .unwrap_or(Vec::<String>::new())
+                .join(" ");
+            let system_packages_str = system_packages
+                .clone()
+                .unwrap_or(Vec::<String>::new())
+                .join(" ");
+            docker::build_image_ez_mode(
+                gpu,
+                &python_packages_str,
+                &system_packages_str,
+                &model_config.name,
+                &serve_code,
+                docker_client,
+            )
+            .await?;
+        }
     }
 
     let repo_endpoint = docker::push_image(docker_client, ecr_client, &model_config.name).await?;
@@ -176,14 +229,14 @@ async fn process_deploy(ecr_client: &aws_sdk_ecr::Client,
         Some(o) => {
             match o.bucket {
                 Some(b) => bucket_name = b.clone(),
-                None => {},
+                None => {}
             }
             match o.role {
                 Some(r) => execution_role_name = r.clone(),
-                None => {},
+                None => {}
             }
-        },
-        None => {},
+        }
+        None => {}
     }
 
     let exec_role_arn = aws::create_sagemaker_role(&execution_role_name, iam_client).await?;
@@ -195,12 +248,26 @@ async fn process_deploy(ecr_client: &aws_sdk_ecr::Client,
             let utc_now: DateTime<Utc> = Utc::now();
             let s3_key = format!("{}/{}/{}", &model_config.name, utc_now, a);
             let s3_path = aws::upload_artefact(&a, &bucket_name, &s3_key, s3_client).await?;
-            aws::create_sagemaker_model(&model_config.name, &exec_role_arn, &uri, sage_client, Some(s3_path)).await?;
-        },
+            aws::create_sagemaker_model(
+                &model_config.name,
+                &exec_role_arn,
+                &uri,
+                sage_client,
+                Some(s3_path),
+            )
+            .await?;
+        }
         None => {
             // No artefact to put on S3
-            aws::create_sagemaker_model(&model_config.name, &exec_role_arn, &uri, sage_client, None).await?;
-        },
+            aws::create_sagemaker_model(
+                &model_config.name,
+                &exec_role_arn,
+                &uri,
+                sage_client,
+                None,
+            )
+            .await?;
+        }
     }
 
     let endpoint_name = format!("{}-sageturner-endpoint", &model_config.name);
@@ -218,8 +285,15 @@ async fn process_deploy(ecr_client: &aws_sdk_ecr::Client,
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .max_concurrency;
-            aws::create_serverless_endpoint(&endpoint_name, &model_config.name, memory, max_concurrency, sage_client).await?;
-        },
+            aws::create_serverless_endpoint(
+                &endpoint_name,
+                &model_config.name,
+                memory,
+                max_concurrency,
+                sage_client,
+            )
+            .await?;
+        }
         EndpointType::Server => {
             let instance_type = model_config
                 .compute
@@ -234,8 +308,15 @@ async fn process_deploy(ecr_client: &aws_sdk_ecr::Client,
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .initial_instance_count;
-            aws::create_server_endpoint(&endpoint_name, &model_config.name, &instance_type, initial_instance_count, sage_client).await?;
-        },
+            aws::create_server_endpoint(
+                &endpoint_name,
+                &model_config.name,
+                &instance_type,
+                initial_instance_count,
+                sage_client,
+            )
+            .await?;
+        }
     }
     println!("Sageturner done!");
     Ok(())

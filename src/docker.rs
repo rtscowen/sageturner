@@ -1,10 +1,18 @@
-use std::{collections::HashMap, fs::File, io::{Read, Write}};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{Read, Write},
+};
 
 use anyhow::{anyhow, Result};
 use aws_sdk_ecr::operation::describe_repositories::DescribeRepositoriesError;
-use bollard::{image::{BuildImageOptions, PushImageOptions, TagImageOptions}, secret::{BuildInfo, ImageId}, Docker};
-use tempfile::tempdir; 
+use bollard::{
+    image::{BuildImageOptions, PushImageOptions, TagImageOptions},
+    secret::{BuildInfo, ImageId},
+    Docker,
+};
 use tar::Builder;
+use tempfile::tempdir;
 
 use futures_util::stream::StreamExt;
 
@@ -24,14 +32,13 @@ pub async fn build_image_byo(path: &str, docker: &Docker, repo_name: &str) -> Re
     builder.append_dir_all("", path).unwrap();
     builder.finish().unwrap();
 
-    
     let mut archive = File::open(tar_path).unwrap();
     let mut contents = Vec::new();
     archive.read_to_end(&mut contents).unwrap();
-    
-    let options = BuildImageOptions{
+
+    let options = BuildImageOptions {
         dockerfile: "Dockerfile",
-        t: repo_name, 
+        t: repo_name,
         rm: true,
         ..Default::default()
     };
@@ -41,7 +48,11 @@ pub async fn build_image_byo(path: &str, docker: &Docker, repo_name: &str) -> Re
     while let Some(msg) = build.next().await {
         let build_output = msg?;
         print!("{}", build_output.stream.unwrap_or_default());
-        if let BuildInfo { aux: Some(ImageId { id: Some(id) }), .. } = build_output {
+        if let BuildInfo {
+            aux: Some(ImageId { id: Some(id) }),
+            ..
+        } = build_output
+        {
             image_id = id;
         }
     }
@@ -51,10 +62,16 @@ pub async fn build_image_byo(path: &str, docker: &Docker, repo_name: &str) -> Re
     } else {
         Ok(())
     }
-
 }
 
-pub async fn build_image_ez_mode(gpu: bool, extra_python: &str, extra_system: &str, name: &str, serve_code: &str, docker_client: &Docker) -> Result<()> {
+pub async fn build_image_ez_mode(
+    gpu: bool,
+    extra_python: &str,
+    extra_system: &str,
+    name: &str,
+    serve_code: &str,
+    docker_client: &Docker,
+) -> Result<()> {
     println!("Building dynamically generated image, with Python packages {}, and system packages {}, and your serve code", extra_python, extra_system);
     let dockerfile_contents = if gpu {
         gpu_dockerfile()
@@ -87,20 +104,24 @@ pub async fn build_image_ez_mode(gpu: bool, extra_python: &str, extra_system: &s
     build_args.insert("EXTRA_PYTHON_PACKAGES", extra_python);
     build_args.insert("EXTRA_SYSTEM_PACKAGES", extra_system);
 
-    let options = BuildImageOptions{
+    let options = BuildImageOptions {
         dockerfile: "Dockerfile",
-        t: name, 
+        t: name,
         rm: true,
         buildargs: build_args,
         ..Default::default()
     };
     let mut build = docker_client.build_image(options, None, Some(contents.into()));
-    
+
     let mut image_id: String = "".to_string();
     while let Some(msg) = build.next().await {
         let build_output = msg?;
         print!("{}", build_output.stream.unwrap_or_default());
-        if let BuildInfo { aux: Some(ImageId { id: Some(id) }), .. } = build_output {
+        if let BuildInfo {
+            aux: Some(ImageId { id: Some(id) }),
+            ..
+        } = build_output
+        {
             image_id = id;
         }
     }
@@ -112,37 +133,59 @@ pub async fn build_image_ez_mode(gpu: bool, extra_python: &str, extra_system: &s
     }
 }
 
-pub async fn push_image(docker: &Docker, ecr_client: &aws_sdk_ecr::Client, image_name: &str) -> Result<String> {
+pub async fn push_image(
+    docker: &Docker,
+    ecr_client: &aws_sdk_ecr::Client,
+    image_name: &str,
+) -> Result<String> {
     println!("Pushing image {} to ECR", image_name);
-    let repo_check = ecr_client.describe_repositories().repository_names(image_name).send().await;
+    let repo_check = ecr_client
+        .describe_repositories()
+        .repository_names(image_name)
+        .send()
+        .await;
     let uri;
     match repo_check {
         Ok(desc) => {
-            uri = desc.repositories()[0].repository_uri.clone().ok_or_else(|| anyhow!("Error reading repo URI"))?;
-        },
+            uri = desc.repositories()[0]
+                .repository_uri
+                .clone()
+                .ok_or_else(|| anyhow!("Error reading repo URI"))?;
+        }
         Err(err) => {
             match err.into_service_error() {
                 DescribeRepositoriesError::RepositoryNotFoundException(_) => {
-                    let new_repo = ecr_client.create_repository()
+                    let new_repo = ecr_client
+                        .create_repository()
                         .repository_name(image_name)
                         .send()
                         .await?;
 
-                    let new_repo_info = new_repo.repository().ok_or_else(|| anyhow!("Error reading new repo info"))?;
-                    uri = new_repo_info.repository_uri.clone().ok_or_else(|| anyhow!("Error reading new repo URI"))?
-                },
+                    let new_repo_info = new_repo
+                        .repository()
+                        .ok_or_else(|| anyhow!("Error reading new repo info"))?;
+                    uri = new_repo_info
+                        .repository_uri
+                        .clone()
+                        .ok_or_else(|| anyhow!("Error reading new repo URI"))?
+                }
                 err @ _ => return Err(err.into()),
             };
-        },
+        }
     };
-        
-    docker.tag_image(image_name, Some(TagImageOptions{
-        tag: "latest",
-        repo: &uri
-    })).await?;
+
+    docker
+        .tag_image(
+            image_name,
+            Some(TagImageOptions {
+                tag: "latest",
+                repo: &uri,
+            }),
+        )
+        .await?;
 
     let push_options = Some(PushImageOptions::<String> {
-        tag: "latest".to_string()
+        tag: "latest".to_string(),
     });
     let credentials = get_docker_credentials_for_ecr(ecr_client).await?;
     let mut push_stream = docker.push_image(&uri, push_options, Some(credentials));
