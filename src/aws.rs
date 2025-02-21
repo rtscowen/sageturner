@@ -1,21 +1,10 @@
-// AWS fuckery 
-
-// create sagemaker role - if it doesn't exist simplesage-role
-// create S3 bucket - simplesage-sagemaker
-// 
-
-// have default buckets and default roles that it creates; 
-// in the wire file, allow an override bucket and role 
-
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_sagemaker::types::{builders::ProductionVariantServerlessConfigBuilder, ContainerDefinition, ModelInput, ProductionVariant, ProductionVariantServerlessConfig};
+use aws_sdk_sagemaker::types::{ContainerDefinition, ProductionVariant, ProductionVariantServerlessConfig};
 use base64::prelude::*;
 use bollard::auth::DockerCredentials;
-use flate2::{write::GzEncoder, Compression};
-use tar::Builder;
 
 pub async fn create_sagemaker_role(role_name: &str, client: &aws_sdk_iam::Client) -> Result<String> {
     // Define the trust policy
