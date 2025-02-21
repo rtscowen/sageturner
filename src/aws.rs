@@ -58,7 +58,7 @@ pub async fn create_sagemaker_role(
                     Err(_) => return Err(anyhow!("Shouldn't have failed to get this role")),
                 }
             }
-            err @ _ => return Err(err.into()),
+            err => return Err(err.into()),
         },
     }
 
@@ -82,7 +82,7 @@ pub async fn create_sagemaker_bucket(bucket_name: &str, client: &aws_sdk_s3::Cli
                 println!("Bucket already exists");
                 Ok(())
             }
-            err @ _ => return Err(err.into()),
+            err => Err(err.into()),
         },
     }
 }

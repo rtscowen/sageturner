@@ -24,5 +24,5 @@ pub fn get_serve_code(filename: &str) -> String {
     "#,
         filename
     );
-    return content;
+    content
 }

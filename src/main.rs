@@ -225,18 +225,9 @@ async fn process_deploy(
     let mut execution_role_name = "Sageturner-role".to_string();
 
     // TODO - unclone this
-    match model_config.sagemaker_overrides {
-        Some(o) => {
-            match o.bucket {
-                Some(b) => bucket_name = b.clone(),
-                None => {}
-            }
-            match o.role {
-                Some(r) => execution_role_name = r.clone(),
-                None => {}
-            }
-        }
-        None => {}
+    if let Some(o) = model_config.sagemaker_overrides {
+        if let Some(b) = o.bucket { bucket_name = b.clone() }
+        if let Some(r) = o.role { execution_role_name = r.clone() }
     }
 
     let exec_role_arn = aws::create_sagemaker_role(&execution_role_name, iam_client).await?;

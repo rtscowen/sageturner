@@ -169,7 +169,7 @@ pub async fn push_image(
                         .clone()
                         .ok_or_else(|| anyhow!("Error reading new repo URI"))?
                 }
-                err @ _ => return Err(err.into()),
+                err => return Err(err.into()),
             };
         }
     };
@@ -244,7 +244,7 @@ fn cpu_dockerfile() -> String {
 
     ENTRYPOINT [ "python", "serve.py" ]
     "#;
-    return content.to_string();
+    content.to_string()
 }
 
 fn gpu_dockerfile() -> String {
@@ -300,5 +300,5 @@ fn gpu_dockerfile() -> String {
 
     ENTRYPOINT [ "python", "serve.py" ]
     "#;
-    return content.to_string();
+    content.to_string()
 }
