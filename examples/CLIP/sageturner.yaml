@@ -1,0 +1,27 @@
+name: sageturner-clip
+# artefact: 
+## too big to commit to this git repo, 
+## but you could optionally put a path to a tar.gz compressed 
+## .pt of one of the clip models (under clip/clip.py in the clip repo) 
+## here and it would be available to your container at /opt/ml/model
+deployment: 
+  smart_deploy:
+    code: 
+    system_packages:
+    python_packages:
+    install_cuda:
+    python_version: 
+  docker_deploy:
+    docker_dir: .
+  compute: 
+    serverless: 
+      memory: 
+      provisioned_concurrency: 
+      max_concurrency: 
+    server:
+      instance_type: 
+      initial_instance_count: 
+  # overrides: 
+  #   bucket:
+  #   role: 
+

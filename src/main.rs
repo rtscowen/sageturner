@@ -10,6 +10,9 @@ mod docker;
 mod model_config;
 mod pyserve;
 
+const DEFAULT_ROLE_NAME: &str = "sageturner-role-sagemaker";
+const DEFAULT_BUCKET_NAME: &str = "sageturner-sagemaker-models";
+
 #[derive(Debug, FromArgs, PartialEq)]
 #[argh(description = "Sageturner deploys your models to Amazon SageMaker in one command.")]
 struct SageturnerCLI {
@@ -21,6 +24,7 @@ struct SageturnerCLI {
 #[argh(subcommand)]
 enum SageturnerSubCommands {
     Deploy(Deploy),
+    Setup(Setup)
 }
 
 #[derive(Debug, FromArgs, PartialEq)]
@@ -33,18 +37,18 @@ struct Deploy {
     #[argh(
         option,
         short = 'e',
-        description = "the type of endpoint for deployment (serverless or server)"
+        description = "the type of endpoint for deployment: serverless, server)"
     )]
     endpoint_type: EndpointType,
 
     #[argh(
         option,
         short = 'm',
-        description = "sageturner deployment mode: docker (supply your own dockerfile) or smart (sageturner builds one for you)"
+        description = "sageturner container mode: generate, provide"
     )]
-    mode: DeploymentMode,
+    mode: ContainerMode,
 
-    #[argh(option, short = 'c', description = "path to sageturner.yaml")]
+    #[argh(option, short = 'c', description = "path to config YAML")]
     model_config: String,
 }
 
@@ -79,34 +83,42 @@ impl std::fmt::Display for EndpointType {
 }
 
 #[derive(Debug, PartialEq)]
-enum DeploymentMode {
-    Docker,
-    Smart,
+enum ContainerMode {
+    Generate,
+    Provide,
 }
 
-impl FromStr for DeploymentMode {
+impl FromStr for ContainerMode {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "smart" => Ok(DeploymentMode::Smart),
-            "docker" => Ok(DeploymentMode::Docker),
+            "generate" => Ok(ContainerMode::Generate),
+            "provide" => Ok(ContainerMode::Provide),
             _ => Err(anyhow!(
-                "Invalid deployment type. docker or smart, not: {}",
+                "Invalid container mode. use generate or provide, not: {}",
                 s
             )),
         }
     }
 }
 
-impl std::fmt::Display for DeploymentMode {
+impl std::fmt::Display for ContainerMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeploymentMode::Docker => write!(f, "docker"),
-            DeploymentMode::Smart => write!(f, "smart"),
+            ContainerMode::Generate => write!(f, "generate"),
+            ContainerMode::Provide => write!(f, "provide"),
         }
     }
 }
+
+#[derive(Debug, FromArgs, PartialEq)]
+#[argh(
+    subcommand,
+    name = "setup",
+    description = "Create Sageturner bucket and role"
+)]
+struct Setup {}
 
 #[::tokio::main]
 async fn main() -> Result<()> {
@@ -131,6 +143,14 @@ async fn main() -> Result<()> {
                 &deploy,
             )
             .await?
+        },
+        SageturnerSubCommands::Setup(_) => {
+            println!("Performing initial setup: creating Sageturner role and bucket");
+            // Create role with name sageturner-role, attach SagemakerFullAccessPolicy
+            aws::create_sagemaker_role(DEFAULT_ROLE_NAME, &iam_client).await?;
+            // Create bucket with name sageturner-sagemaker-models, attach SagemakerFullAccessPolicy
+            aws::create_sagemaker_bucket(DEFAULT_BUCKET_NAME, &s3_client).await?;
+            println!("Setup done");
         }
     }
 
@@ -146,7 +166,7 @@ async fn process_deploy(
     deploy_params: &Deploy,
 ) -> Result<()> {
     println!(
-        "Deploying model with config at {} to {} endpoint, {} deployment mode",
+        "Deploying model with config at {} to {} endpoint, {} container mode",
         &deploy_params.model_config, &deploy_params.endpoint_type, &deploy_params.mode
     );
 
@@ -160,45 +180,45 @@ async fn process_deploy(
 
     // Generate dockerfile & build, or build the supplied dockerfile
     match deploy_params.mode {
-        DeploymentMode::Docker => {
+        ContainerMode::Provide => {
             let docker_dir = model_config
-                .deployment
-                .docker_deploy
+                .container
+                .provide_container
                 .ok_or_else(|| {
                     anyhow!("Something went wrong with our validation. Raise an issue.")
                 })?
                 .docker_dir;
             docker::build_image_byo(&docker_dir, docker_client, &model_config.name).await?;
         }
-        DeploymentMode::Smart => {
+        ContainerMode::Generate => {
             let code_location = &model_config
-                .deployment
-                .smart_deploy
+                .container
+                .generate_container
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .code.as_str();
             let python_packages = &model_config
-                .deployment
-                .smart_deploy
+                .container
+                .generate_container
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .python_packages;
             let system_packages = &model_config
-                .deployment
-                .smart_deploy
+                .container
+                .generate_container
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .system_packages;
             let serve_code = pyserve::get_serve_code(code_location);
             let gpu = model_config
-                .deployment
-                .smart_deploy
+                .container
+                .generate_container
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .install_cuda;
             let python_version = model_config
-                .deployment
-                .smart_deploy
+                .container
+                .generate_container
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .python_version.clone();
@@ -229,17 +249,22 @@ async fn process_deploy(
     let repo_endpoint = docker::push_image(docker_client, ecr_client, &model_config.name).await?;
     let uri = format!("{repo_endpoint}:latest");
 
-    let mut bucket_name = "Sageturner-sagemaker".to_string();
-    let mut execution_role_name = "Sageturner-role".to_string();
+    let mut bucket_name = DEFAULT_BUCKET_NAME.to_string();
+    let mut execution_role_name = DEFAULT_ROLE_NAME.to_string();
 
     // TODO - unclone this
-    if let Some(o) = model_config.sagemaker_overrides {
-        if let Some(b) = o.bucket { bucket_name = b.clone() }
-        if let Some(r) = o.role { execution_role_name = r.clone() }
+    if let Some(o) = model_config.overrides {
+        if let Some(b) = o.bucket { 
+            println!("Overriding default bucket name with: {}", b);
+            bucket_name = b.clone() 
+        }
+        if let Some(r) = o.role { 
+            println!("Overriding default role name with: {}", r);
+            execution_role_name = r.clone() 
+        }
     }
 
-    let exec_role_arn = aws::create_sagemaker_role(&execution_role_name, iam_client).await?;
-    aws::create_sagemaker_bucket(&bucket_name, s3_client).await?;
+    let execution_role_arn = aws::get_role_arn(&execution_role_name, iam_client).await?;
 
     // Upload a model artefact if we have it
     match model_config.artefact {
@@ -249,7 +274,7 @@ async fn process_deploy(
             let s3_path = aws::upload_artefact(&a, &bucket_name, &s3_key, s3_client).await?;
             aws::create_sagemaker_model(
                 &model_config.name,
-                &exec_role_arn,
+                &execution_role_arn,
                 &uri,
                 sage_client,
                 Some(s3_path),
@@ -260,7 +285,7 @@ async fn process_deploy(
             // No artefact to put on S3
             aws::create_sagemaker_model(
                 &model_config.name,
-                &exec_role_arn,
+                &execution_role_arn,
                 &uri,
                 sage_client,
                 None,
@@ -296,6 +321,7 @@ async fn process_deploy(
                 memory,
                 max_concurrency,
                 provisioned_concurrency,
+                &execution_role_arn,
                 sage_client,
             )
             .await?;
@@ -303,14 +329,14 @@ async fn process_deploy(
         EndpointType::Server => {
             let instance_type = model_config
                 .compute
-                .server_compute
+                .server
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .instance_type
                 .clone();
             let initial_instance_count = model_config
                 .compute
-                .server_compute
+                .server
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .initial_instance_count;
@@ -319,6 +345,7 @@ async fn process_deploy(
                 &model_config.name,
                 &instance_type,
                 initial_instance_count,
+                &execution_role_arn,
                 sage_client,
             )
             .await?;

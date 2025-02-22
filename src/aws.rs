@@ -8,13 +8,25 @@ use aws_sdk_sagemaker::types::{
 use base64::prelude::*;
 use bollard::auth::DockerCredentials;
 
+pub async fn get_role_arn(role_name: &str, client: &aws_sdk_iam::Client) -> Result<String> {
+    match client.get_role().role_name(role_name).send().await {
+        Ok(r) => {
+            match r.role() {
+                Some(r) => Ok(r.arn.clone()),
+                None => {
+                    return Err(anyhow!("Error getting role ARN"))
+                },
+            }
+        },
+        Err(e) => return Err(anyhow!("Error getting role ARN: {}", e)),
+    }
+}
+
 pub async fn create_sagemaker_role(
     role_name: &str,
     client: &aws_sdk_iam::Client,
-) -> Result<String> {
-    // Define the trust policy
-    let trust_policy = r#"
-    {
+) -> Result<()> {
+    let trust_policy = r#"{
         "Version": "2012-10-17",
         "Statement": [
             {
@@ -27,64 +39,47 @@ pub async fn create_sagemaker_role(
         ]
     }"#;
 
-    let role = client
+    println!("role: {}", role_name);
+    client
         .create_role()
         .role_name(role_name)
         .assume_role_policy_document(trust_policy)
         .send()
-        .await;
+        .await?;
 
-    let arn;
-    match role {
-        Ok(r) => match r.role() {
-            Some(r) => {
-                arn = r.arn.clone();
-            }
-            None => return Err(anyhow!("Role shouldn't be empty")),
-        },
-        Err(err) => match err.into_service_error() {
-            aws_sdk_iam::operation::create_role::CreateRoleError::EntityAlreadyExistsException(
-                _,
-            ) => {
-                println!("Role with that name already exists, getting role ARN and returning early to avoid duplicate policy attachment.");
-                match client.get_role().role_name(role_name).send().await {
-                    Ok(r) => match r.role() {
-                        Some(r) => {
-                            arn = r.arn.clone();
-                            return Ok(arn);
-                        }
-                        None => return Err(anyhow!("Role shouldn't be empty")),
-                    },
-                    Err(_) => return Err(anyhow!("Shouldn't have failed to get this role")),
-                }
-            }
-            err => return Err(err.into()),
-        },
-    }
-
+    println!("Attaching policy");
     client
         .attach_role_policy()
         .role_name(role_name)
         .policy_arn("arn:aws:iam::aws:policy/AmazonSageMakerFullAccess")
         .send()
         .await?;
-
-    Ok(arn)
+    println!("Role created");
+    Ok(())
 }
 
 pub async fn create_sagemaker_bucket(bucket_name: &str, client: &aws_sdk_s3::Client) -> Result<()> {
-    let bucket = client.create_bucket().bucket(bucket_name).send().await;
+    println!("bucket: {}", bucket_name);
+    println!("Checking if bucket already exists");
+    let already_exists = match client.head_bucket().bucket(bucket_name).send().await {
+        Ok(_) => true,
+        Err(_) => false,
+    };
 
-    match bucket {
-        Ok(_) => Ok(()),
-        Err(err) => match err.into_service_error() {
-            aws_sdk_s3::operation::create_bucket::CreateBucketError::BucketAlreadyExists(_) => {
-                println!("Bucket already exists");
-                Ok(())
-            }
-            err => Err(err.into()),
-        },
+    if !already_exists {
+        println!("Creating bucket");
+        let constraint = aws_sdk_s3::types::BucketLocationConstraint::from("eu-west-2".to_string().as_str());
+        let cfg = aws_sdk_s3::types::CreateBucketConfiguration::builder()
+            .location_constraint(constraint)
+            .build();
+        client
+            .create_bucket()
+            .bucket(bucket_name)
+            .create_bucket_configuration(cfg)
+            .send()
+            .await?;
     }
+    Ok(())
 }
 
 pub async fn get_docker_credentials_for_ecr(
@@ -152,6 +147,7 @@ pub async fn create_serverless_endpoint(
     memory_size: i32,
     max_concurrency: i32,
     provisioned_concurrency: i32,
+    execution_role_arn: &str,
     sage_client: &aws_sdk_sagemaker::Client,
 ) -> Result<()> {
     println!(
@@ -176,6 +172,7 @@ pub async fn create_serverless_endpoint(
         .create_endpoint_config()
         .endpoint_config_name(&endpoint_config_name)
         .production_variants(production_variant)
+        .execution_role_arn(execution_role_arn)
         .send()
         .await?;
 
@@ -198,6 +195,7 @@ pub async fn create_server_endpoint(
     model_name: &str,
     instance_type: &str,
     initial_instance_count: i32,
+    execution_role_arn: &str,
     sage_client: &aws_sdk_sagemaker::Client,
 ) -> Result<()> {
     println!(
@@ -217,6 +215,7 @@ pub async fn create_server_endpoint(
         .create_endpoint_config()
         .endpoint_config_name(&endpoint_config_name)
         .production_variants(production_variant)
+        .execution_role_arn(execution_role_arn)
         .send()
         .await?;
 

@@ -1,0 +1,31 @@
+name: sageturner-resnet-50
+artefact: artefact/pytorch_model.bin.tar.gz
+container: 
+  generate_container: 
+    code: /workspaces/python-2/simplesage/examples/resnet-50/generate-container
+    system_packages: 
+    # No extra system packages
+    python_packages: 
+    # Packages to be Pip installed, and any extra args
+      - torch 
+      - torchvision 
+      - torchaudio 
+      - transformers
+      - pillow
+    install_cuda: false # Don't install Cuda Toolkit on the container
+    python_version: 3.12
+  provide_container: 
+    docker_dir: ./provided-container
+compute: 
+  serverless: 
+    memory: 1024
+    provisioned_concurrency: 0
+    max_concurrency: 10
+  server:
+    instance_type: m5.xlarge 
+    initial_instance_count: 1
+overrides: 
+  ## Leaving these blank lets you use a different execution role 
+  ## and bucket to Sageturner's defaults
+  # bucket: sageturner-override
+  # role: sageturner-override

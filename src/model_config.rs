@@ -3,45 +3,46 @@ use std::{fs::File, io::Read, path::PathBuf};
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 
-use crate::{DeploymentMode, EndpointType};
+use crate::{ContainerMode, EndpointType};
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelConfig {
     // The name of the model
     pub name: String,
-    // The model artefact. If provided, we upload this to (compressing if uncompressed) to S3
+    // The model artefact path. If provided, we upload this to S3
     // and pass the S3 path as ModelDataURI to the endpoint. SageMaker then makes this available
     // to the container at /opt/ml/model, boosting load times
     pub artefact: Option<String>,
     // Deployment configuration(s)
-    pub deployment: Deployment,
+    pub container: Container,
     // Specify compute characterstics
     pub compute: Compute,
     // Override the default role and bucket names created by Sageturner as part of the deploy process.
-    // Creates the role/bucket if they don't exist, but won't error if they do
-    pub sagemaker_overrides: Option<Overrides>,
+    // Expects the bucket and role to already exist
+    pub overrides: Option<Overrides>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct Deployment {
+pub struct Container {
     // Configuration for smart mode deploy
-    pub smart_deploy: Option<SmartDeployConfig>,
+    pub generate_container: Option<GenerateContainerConfig>,
     // Configuration for a docker mode deploy
-    pub docker_deploy: Option<DockerDeployConfig>,
+    pub provide_container: Option<ProvideContainerConfig>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SmartDeployConfig {
+pub struct GenerateContainerConfig {
     // A path to a Python script containing a load() and predict() function. We call these functions from a
-    // template serve.py file. This option is for smart mode deploys only
+    // template serve.py file. T
     pub code: String,
-    // Optional additional system packages to install to container when running a smart deploy
+    // Optional additional system packages to install to container 
     pub system_packages: Option<Vec<String>>,
-    // Optional python packages to install to container when running a smart deploy
+    // Optional python packages to install to container 
     // (things that load() and predict() depend on, for instance). Don't need to provide FastAPI, that's in the
     // serve.py template
     pub python_packages: Option<Vec<String>>,
-    // Whether to install CUDA for a smart deploy. Note that we don't allow this if deploy mode is serverless,
+    // Whether to install CUDA. Note that we don't allow this if deploy mode is serverless,
     // as there's no point since Serverless endpoints can't use GPUs
     pub install_cuda: bool,
     // The python version for a smart deploy.
@@ -55,7 +56,7 @@ fn default_python() -> String {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DockerDeployConfig {
+pub struct ProvideContainerConfig {
     // If bringing your own Dockerfile, provide the directory where we can find the Dockerfile and artefacts to build.
     // We bundle everything in that directory to a TAR as part of the build process, so paths referenced in Docker COPY commands needs to work in that directory
     pub docker_dir: String,
@@ -64,7 +65,7 @@ pub struct DockerDeployConfig {
 #[derive(Debug, Deserialize)]
 pub struct Compute {
     pub serverless: Option<ServerlessCompute>,
-    pub server_compute: Option<ServerCompute>,
+    pub server: Option<ServerCompute>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,7 +112,7 @@ pub fn parse_config(path: PathBuf) -> Result<ModelConfig> {
 pub fn validate_config(
     mc: &ModelConfig,
     endpoint_type: &EndpointType,
-    deploy_mode: &DeploymentMode,
+    container_mode: &ContainerMode,
 ) -> Result<()> {
     println!("Validating config file");
     if mc.name.is_empty() {
@@ -127,31 +128,30 @@ pub fn validate_config(
     }
 
     // Validate minimal config present for each deploy mode
-    match deploy_mode {
-        DeploymentMode::Docker => {
-            if mc.deployment.docker_deploy.is_none() {
-                return Err(anyhow!("Invalid sageturner config: you're trying to deploy in docker mode, without field docker_deploy"));
+    match container_mode {
+        ContainerMode::Provide => {
+            if mc.container.provide_container.is_none() {
+                return Err(anyhow!("Invalid sageturner config: you're trying to deploy in provided container mode, but there's no container.provide_container in your YAML"));
             }
-            if mc
-                .deployment
-                .docker_deploy
+            if mc.container
+                .provide_container
                 .as_ref()
                 .is_some_and(|d| d.docker_dir.is_empty())
             {
-                return Err(anyhow!("Invalid sageturner config: you're trying to deploy in docker mode, but your docker_dir is an empty string"));
+                return Err(anyhow!("Invalid sageturner config: you're trying to deploy in provided container mode, but your docker_dir is an empty string"));
             }
         }
-        DeploymentMode::Smart => {
-            if mc.deployment.smart_deploy.is_none() {
-                return Err(anyhow!("Invalid sageturner config: you're trying to deploy in smart mode, without field smart_deploy"));
+        ContainerMode::Generate => {
+            if mc.container.generate_container.is_none() {
+                return Err(anyhow!("Invalid sageturner config: you're trying to deploy in generate container mode, but there's no container.generate_container field in your YAML"));
             }
             if mc
-                .deployment
-                .smart_deploy
+                .container
+                .generate_container
                 .as_ref()
                 .is_some_and(|s| s.code.is_empty())
             {
-                return Err(anyhow!("Invalid sageturner config: you're trying to deploy in smart mode, but your code field is an empty string. needs to be path to code with load() and predict()"));
+                return Err(anyhow!("Invalid sageturner config: you're trying to deploy in generate container mode, but your code field is an empty string. Needs to be path to code with load() and predict()"));
             }
         }
     }
@@ -164,7 +164,7 @@ pub fn validate_config(
             }
         }
         EndpointType::Server => {
-            if mc.compute.server_compute.is_none() {
+            if mc.compute.server.is_none() {
                 return Err(anyhow!("Invalid sageturner config: you're trying to deploy to a server endpoint, without compute->server field"));
             }
         }
@@ -172,14 +172,15 @@ pub fn validate_config(
 
     // Special case: GPUs not supported on serverless
     if *endpoint_type == EndpointType::Serverless
-        && *deploy_mode == DeploymentMode::Smart
+        && *container_mode == ContainerMode::Generate
         && mc
-            .deployment
-            .smart_deploy
+            .container
+            .generate_container
             .as_ref()
             .is_some_and(|s| s.install_cuda)
     {
-        return Err(anyhow!("Invalid sageturner config: you're trying to do a smart deploy, to a serverless endpoint, with install_cuda as true. Serverless endpoints don't support GPU, so no point installing CUDA when sageturner generates your container"));
+        return Err(anyhow!("Invalid sageturner config: you're trying to generate a container with CUDA installed, but using a Serverless endpoint. 
+        Serverless endpoints don't support GPU, set install_cuda to false or deploy to a Server endpoint."));
     }
 
     Ok(())

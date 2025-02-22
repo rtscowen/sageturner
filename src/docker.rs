@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{Read, Write},
+    io::{Read, Seek, Write},
 };
 
 use anyhow::{anyhow, Result};
@@ -75,7 +75,7 @@ pub async fn build_image_ez_mode(
     python_version: &str,
     code_location: &str
 ) -> Result<()> {
-    println!("Building dynamically generated image, with Python packages {}, and system packages {}, and your serve code", extra_python, extra_system);
+    println!("Building dynamically generated image, with \nPython packages: {} \nsystem packages {}\nand your serve code", extra_python, extra_system);
     let dockerfile_contents = if gpu {
         gpu_dockerfile()
     } else {
@@ -85,18 +85,22 @@ pub async fn build_image_ez_mode(
     let tempdir = tempdir()?;
 
     let docker_path = tempdir.path().join("Dockerfile");
-    let mut docker_file = File::create(docker_path)?;
+    let mut docker_file = File::create(&docker_path)?;
     docker_file.write_all(dockerfile_contents.as_bytes())?;
 
     let python_path = tempdir.path().join("serve.py");
-    let mut python_file = File::create(python_path)?;
+    let mut python_file = File::create(&python_path)?;
     python_file.write_all(serve_code.as_bytes())?;
 
     let tar_path = tempdir.path().join("archive_ez.tar");
     let tar_file = File::create(&tar_path)?;
     let mut builder = Builder::new(tar_file);
-    builder.append_file("Dockerfile", &mut docker_file)?;
+    builder.append_dir_all("", code_location)?; // get everything in the code dir
+    // also append the generated serve file and Dockerfile 
+    let mut python_file = File::open(&docker_path)?;
+    let mut docker_file = File::open(&docker_path)?;
     builder.append_file("serve.py", &mut python_file)?;
+    builder.append_file("Dockerfile", &mut docker_file)?;
     builder.finish()?;
 
     let mut archive = File::open(tar_path)?;
@@ -107,7 +111,6 @@ pub async fn build_image_ez_mode(
     build_args.insert("EXTRA_PYTHON_PACKAGES", extra_python);
     build_args.insert("EXTRA_SYSTEM_PACKAGES", extra_system);
     build_args.insert("PYTHON_VERSION", python_version);
-    build_args.insert("LOAD_AND_PREDICT_SCRIPT_PATH", code_location);
     
 
     let options = BuildImageOptions {
@@ -119,24 +122,23 @@ pub async fn build_image_ez_mode(
     };
     let mut build = docker_client.build_image(options, None, Some(contents.into()));
 
-    let mut image_id: String = "".to_string();
     while let Some(msg) = build.next().await {
-        let build_output = msg?;
-        print!("{}", build_output.stream.unwrap_or_default());
-        if let BuildInfo {
-            aux: Some(ImageId { id: Some(id) }),
-            ..
-        } = build_output
-        {
-            image_id = id;
+        match msg {
+            Ok(i) => {
+                print!("{}", i.stream.unwrap_or_default())
+            },
+            Err(e) => {
+                match e {
+                    bollard::errors::Error::DockerStreamError { error } => {
+                        return Err(anyhow!("Docker build error: {}", error))
+                    },
+                    _ => return Err(anyhow!("Other Docker error: {}", e.to_string()))
+                }
+            },
         }
     }
 
-    if image_id.is_empty() {
-        Err(anyhow!("No image tag"))
-    } else {
-        Ok(())
-    }
+    Ok(())
 }
 
 pub async fn push_image(
@@ -197,54 +199,59 @@ pub async fn push_image(
     let mut push_stream = docker.push_image(&uri, push_options, Some(credentials));
 
     while let Some(stream) = push_stream.next().await {
-        let info = stream?;
-        let progess = info.progress;
-        println!("{:?}", progess)
+        match stream {
+            Ok(p) => {
+                println!("{:?}", p);
+                // println!("Progress: {}", p.progress.unwrap_or_default());
+            },
+            Err(e) => {
+                match e {
+                    _ => return Err(anyhow!("Docker push error: {}", e.to_string()))
+                }
+            },
+        }
     }
+    println!("Docker image uploaded successfully");
     Ok(uri)
 }
 
 fn cpu_dockerfile() -> String {
     let content = r#"
-    FROM UBUNTU:22.04
-    SHELL ["/bin/bash", "-c"]
+    FROM ubuntu:22.04
 
     ARG PYTHON_VERSION="3.12"
     ARG EXTRA_PYTHON_PACKAGES=""
     ARG EXTRA_SYSTEM_PACKAGES=""
-    ARG LOAD_AND_PREDICT_SCRIPT_PATH
 
     RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
         build-essential libssl-dev zlib1g-dev \
         libbz2-dev libreadline-dev libsqlite3-dev curl git \
-        libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev wget
+        libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev wget ca-certificates
 
     ENV HOME=/home/root 
-    RUN curl -fsSL https://pyenv.run | bash
+    RUN curl https://pyenv.run | bash
     ENV PYENV_ROOT=${HOME}/.pyenv
     ENV PATH=${PYENV_ROOT}/shims:${PYENV_ROOT}/bin:$PATH
+    RUN echo $PATH
+    RUN ls -al $PYENV_ROOT
 
     RUN pyenv install ${PYTHON_VERSION}
     RUN pyenv global ${PYTHON_VERSION}
 
     # Install extra system packages
-    RUN if [ ${EXTRA_SYSTEM_PACKAGES} != "" ]; then \
-            apt-get -y install --no-install-recommends ${EXTRA_SYSTEM_PACKAGES} \
-        fi
+    RUN if [ "${EXTRA_SYSTEM_PACKAGES}" != "" ]; then apt-get -y install --no-install-recommends ${EXTRA_SYSTEM_PACKAGES}; fi
 
     # Install FastAPI as standard 
     RUN pip install fastapi[standard]
 
     # Install extra python packages 
-    RUN if [ ${EXTRA_PYTHON_PACKAGES} != "" ]; then \
-            pip install --no-input ${EXTRA_PYTHON_PACKAGES} \
-        fi
+    RUN if [ "${EXTRA_PYTHON_PACKAGES}" != "" ]; then pip install ${EXTRA_PYTHON_PACKAGES}; fi
 
     ENV PYTHONUNBUFFERED=TRUE
     ENV PYTHONDONTWRITEBYTECODE=TRUE
     ENV PATH="${PATH}:/opt/program/"
 
-    COPY ${LOAD_AND_PREDICT_SCRIPT_PATH} /opt/program/
+    COPY . /opt/program/
     COPY serve.py /opt/program/
     WORKDIR /opt/program/
 
@@ -255,18 +262,16 @@ fn cpu_dockerfile() -> String {
 
 fn gpu_dockerfile() -> String {
     let content = r#"
-    FROM UBUNTU:22.04
-    SHELL ["/bin/bash", "-c"]
+    FROM ubuntu:22.04
 
     ARG PYTHON_VERSION="3.12"
     ARG EXTRA_PYTHON_PACKAGES=""
     ARG EXTRA_SYSTEM_PACKAGES=""
-    ARG LOAD_AND_PREDICT_SCRIPT_PATH
 
     RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
         build-essential libssl-dev zlib1g-dev \
         libbz2-dev libreadline-dev libsqlite3-dev curl git \
-        libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev wget
+        libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev wget ca-certificates
 
     RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin --no-check-certificate && \
         mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
@@ -276,7 +281,7 @@ fn gpu_dockerfile() -> String {
         apt-get -y update && apt-get -y install cuda-toolkit-12-8
 
     ENV HOME=/home/root 
-    RUN curl -fsSL https://pyenv.run | bash
+    RUN curl https://pyenv.run | bash
     ENV PYENV_ROOT=${HOME}/.pyenv
     ENV PATH=${PYENV_ROOT}/shims:${PYENV_ROOT}/bin:$PATH
 
@@ -300,8 +305,8 @@ fn gpu_dockerfile() -> String {
     ENV PYTHONDONTWRITEBYTECODE=TRUE
     ENV PATH="${PATH}:/opt/program/"
 
+    COPY . /opt/program/
     COPY serve.py /opt/program/
-    COPY ${LOAD_AND_PREDICT_SCRIPT_PATH} /opt/program/
     WORKDIR /opt/program/
 
     ENTRYPOINT [ "python", "serve.py" ]
