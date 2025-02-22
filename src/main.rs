@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{path::Path, str::FromStr};
 
 use anyhow::{anyhow, Result};
 use argh::FromArgs;
@@ -250,27 +250,30 @@ async fn process_deploy(
     let uri = format!("{repo_endpoint}:latest");
 
     let mut bucket_name = DEFAULT_BUCKET_NAME.to_string();
-    let mut execution_role_name = DEFAULT_ROLE_NAME.to_string();
+    let mut execution_role_arn = "".to_string();
 
     // TODO - unclone this
     if let Some(o) = model_config.overrides {
-        if let Some(b) = o.bucket { 
+        if let Some(b) = o.bucket_name { 
             println!("Overriding default bucket name with: {}", b);
             bucket_name = b.clone() 
         }
-        if let Some(r) = o.role { 
+        
+        if let Some(r) = o.role_arn { 
             println!("Overriding default role name with: {}", r);
-            execution_role_name = r.clone() 
+            execution_role_arn = r.clone();
+        } else {
+            execution_role_arn = aws::get_role_arn(DEFAULT_BUCKET_NAME, iam_client).await?;
         }
     }
-
-    let execution_role_arn = aws::get_role_arn(&execution_role_name, iam_client).await?;
 
     // Upload a model artefact if we have it
     match model_config.artefact {
         Some(a) => {
-            let utc_now: DateTime<Utc> = Utc::now();
-            let s3_key = format!("{}/{}/{}", &model_config.name, utc_now, a);
+            let utc_now = Utc::now().format("%d/%m/%Y%H:%M").to_string();
+            let path = Path::new(&a);
+            let a_name = path.file_name().ok_or_else(|| anyhow!("Couldn't extract filename from artefact path"))?;
+            let s3_key = format!("{}/{}/{}", &model_config.name, utc_now, a_name.to_str().unwrap());
             let s3_path = aws::upload_artefact(&a, &bucket_name, &s3_key, s3_client).await?;
             aws::create_sagemaker_model(
                 &model_config.name,

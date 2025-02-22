@@ -1,9 +1,11 @@
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::client::Waiters;
 use aws_sdk_sagemaker::types::{
-    ContainerDefinition, ProductionVariant, ProductionVariantServerlessConfig,
+    ContainerDefinition, KendraSettings, ProductionVariant, ProductionVariantServerlessConfig
 };
 use base64::prelude::*;
 use bollard::auth::DockerCredentials;
@@ -172,7 +174,6 @@ pub async fn create_serverless_endpoint(
         .create_endpoint_config()
         .endpoint_config_name(&endpoint_config_name)
         .production_variants(production_variant)
-        .execution_role_arn(execution_role_arn)
         .send()
         .await?;
 
@@ -239,6 +240,7 @@ pub async fn upload_artefact(
     s3_key: &str,
     s3_client: &aws_sdk_s3::Client,
 ) -> Result<String> {
+    println!("Uploading file {} to bucket {} with key {}", object_path, bucket_name, s3_key);
     if !is_tar_gz(object_path) {
         return Err(anyhow!("Artefact needs to be a .tar.gz file (ask perplexity how to create one, if you're not sure"));
     }
@@ -249,6 +251,12 @@ pub async fn upload_artefact(
         .key(s3_key)
         .body(body)
         .send()
+        .await?;
+
+    s3_client.wait_until_object_exists()
+        .bucket(bucket_name)
+        .key(s3_key)
+        .wait(Duration::from_secs(5))
         .await?;
 
     let s3_path = format!("s3://{}/{}", bucket_name, s3_key);

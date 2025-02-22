@@ -87,8 +87,8 @@ pub struct ServerCompute {
 
 #[derive(Debug, Deserialize)]
 pub struct Overrides {
-    pub bucket: Option<String>,
-    pub role: Option<String>,
+    pub bucket_name: Option<String>,
+    pub role_arn: Option<String>,
 }
 
 pub fn parse_config(path: PathBuf) -> Result<ModelConfig> {
