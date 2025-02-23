@@ -1,7 +1,8 @@
 // CONSTRAINT: the file must be called sageturner.py, 
 // so that the import statement works 
 pub fn get_serve_code() -> String {
-    let content = r#"import sageturner
+    
+    r#"import sageturner
         from fastapi import FastAPI, Request
         import uvicorn
         model = sageturner.load()
@@ -20,6 +21,5 @@ pub fn get_serve_code() -> String {
         if __name__ == "__main__":
             config = uvicorn.Config("serve:app", port=8080)
             server = uvicorn.Server(config=config)
-            server.run()"#.to_string();
-    content
+            server.run()"#.to_string()
 }
