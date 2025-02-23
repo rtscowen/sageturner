@@ -6,12 +6,9 @@ container:
     system_packages: 
     # No extra system packages
     python_packages: 
-    # Packages to be Pip installed, and any extra args
-      - torch 
-      - torchvision 
-      - torchaudio 
-      - transformers
-      - pillow
+    # Packages to be Pip installed, and any extra args. This package set is suitable for a CPU only deploy
+      - --extra-index-url https://download.pytorch.org/whl/cpu transformers[torch]
+      - pillow 
     install_cuda: false # Don't install Cuda Toolkit on the container
     python_version: 3.12
   provide_container: 
@@ -25,5 +22,6 @@ compute:
     instance_type: ml.m5.xlarge 
     initial_instance_count: 1
 overrides: 
+  # If you used different role/bucket to the defaults created by setup, create them here
   # role_name: sageturner-role
   # bucket_name: sageturner-override

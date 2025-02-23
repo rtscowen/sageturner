@@ -232,24 +232,15 @@ pub async fn push_image(
 
 fn cpu_dockerfile() -> String {
     let content = r#"
-    FROM ubuntu:22.04
-
     ARG PYTHON_VERSION="3.12"
+    FROM python:${PYTHON_VERSION}
+
     ARG EXTRA_PYTHON_PACKAGES=""
     ARG EXTRA_SYSTEM_PACKAGES=""
 
-    RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
-        build-essential libssl-dev zlib1g-dev \
-        libbz2-dev libreadline-dev libsqlite3-dev curl git \
-        libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev wget ca-certificates
+    RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
-    ENV HOME=/home/root 
-    RUN curl https://pyenv.run | bash
-    ENV PYENV_ROOT=${HOME}/.pyenv
-    ENV PATH=${PYENV_ROOT}/shims:${PYENV_ROOT}/bin:$PATH
-
-    RUN pyenv install ${PYTHON_VERSION}
-    RUN pyenv global ${PYTHON_VERSION}
+    RUN python -m ensurepip
 
     # Install extra system packages
     RUN if [ "${EXTRA_SYSTEM_PACKAGES}" != "" ]; then apt-get -y install --no-install-recommends ${EXTRA_SYSTEM_PACKAGES}; fi
@@ -258,7 +249,7 @@ fn cpu_dockerfile() -> String {
     RUN pip install fastapi[standard]
 
     # Install extra python packages 
-    RUN if [ "${EXTRA_PYTHON_PACKAGES}" != "" ]; then pip install --no-input ${EXTRA_PYTHON_PACKAGES}; fi
+    RUN if [ "${EXTRA_PYTHON_PACKAGES}" != "" ]; then pip3 install --no-input ${EXTRA_PYTHON_PACKAGES}; fi
 
     ENV PYTHONUNBUFFERED=TRUE
     ENV PYTHONDONTWRITEBYTECODE=TRUE
@@ -275,16 +266,16 @@ fn cpu_dockerfile() -> String {
 
 fn gpu_dockerfile() -> String {
     let content = r#"
-    FROM ubuntu:22.04
-
     ARG PYTHON_VERSION="3.12"
+    FROM ubuntu:${PYTHON_VERSION}
+
     ARG EXTRA_PYTHON_PACKAGES=""
     ARG EXTRA_SYSTEM_PACKAGES=""
 
     RUN apt-get -y update && DEBIAN_FRONTEND=noninteractive apt-get -y install --no-install-recommends \
         build-essential libssl-dev zlib1g-dev \
         libbz2-dev libreadline-dev libsqlite3-dev curl git \
-        libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev wget ca-certificates
+        libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev wget ca-certificates && rm -rf /var/lib/apt/lists/*
 
     RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin --no-check-certificate && \
         mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
