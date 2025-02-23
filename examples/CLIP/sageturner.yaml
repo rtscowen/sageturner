@@ -1,27 +1,34 @@
 name: sageturner-clip
-# artefact: 
-## too big to commit to this git repo, 
-## but you could optionally put a path to a tar.gz compressed 
-## .pt of one of the clip models (under clip/clip.py in the clip repo) 
-## here and it would be available to your container at /opt/ml/model
-deployment: 
-  smart_deploy:
-    code: 
-    system_packages:
-    python_packages:
-    install_cuda:
-    python_version: 
-  docker_deploy:
-    docker_dir: .
-  compute: 
-    serverless: 
-      memory: 
-      provisioned_concurrency: 
-      max_concurrency: 
-    server:
-      instance_type: 
-      initial_instance_count: 
-  # overrides: 
-  #   bucket:
-  #   role: 
-
+# This one's too big for the repo, but in a future verison I'll support URL -> S3 direct transfer so you
+# don't have to have these huge files around if you're getting existing weights 
+artefact: /path/to/clip/artefact
+container: 
+  generate_container: 
+    code_dir: ./generate-container
+    system_packages: 
+    # No extra system packages
+    python_packages: 
+    # Packages to be Pip installed, and any extra args. GPU deploy for CLIP
+      - --extra-index-url https://download.pytorch.org/whl/cu118 torch 
+      - torchvision 
+      - torchaudio 
+      - ftfy 
+      - regex 
+      - tqdm 
+    install_cuda: true 
+    python_version: 3.12
+  provide_container: 
+    docker_dir: ./provided-container
+compute: 
+  # Leaving this here for completeness, but a) no serverless GPUs on Sagemaker, b) you'll exceed the container image limit
+  serverless: 
+    memory: 3072
+    provisioned_concurrency: 1
+    max_concurrency: 2
+  server:
+    instance_type: ml.g4dn.xlarge
+    initial_instance_count: 1
+overrides: 
+  # If you used different role/bucket to the defaults created by setup, create them here
+  # role_name: sageturner-role
+  # bucket_name: sageturner-override

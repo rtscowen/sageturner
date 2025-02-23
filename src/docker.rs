@@ -63,11 +63,7 @@ pub async fn build_image_byo(docker_dir_path: &Path, docker: &Docker, repo_name:
         }
     }
 
-    if image_id.is_empty() {
-        Err(anyhow!("No image tag"))
-    } else {
-        Ok(())
-    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

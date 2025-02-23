@@ -48,7 +48,7 @@ struct Deploy {
         short = 'm',
         description = "sageturner container mode: generate, provide"
     )]
-    mode: ContainerMode,
+    container_mode: ContainerMode,
 
     #[argh(option, short = 'c', description = "path to config YAML")]
     config_path: String,
@@ -171,7 +171,7 @@ async fn process_deploy(
 ) -> Result<()> {
     println!(
         "Deploying model with config at {} to {} endpoint, {} container mode",
-        &deploy_params.config_path, &deploy_params.endpoint_type, &deploy_params.mode
+        &deploy_params.config_path, &deploy_params.endpoint_type, &deploy_params.container_mode
     );
 
     let config_dir = Path::new(&deploy_params.config_path).parent().expect("Your config path didn't point to a YAML file");
@@ -182,12 +182,12 @@ async fn process_deploy(
     model_config::validate_config(
         &model_config,
         &deploy_params.endpoint_type,
-        &deploy_params.mode,
+        &deploy_params.container_mode,
         config_dir
     )?;
 
     // Generate dockerfile & build, or build the supplied dockerfile
-    match deploy_params.mode {
+    match deploy_params.container_mode {
         ContainerMode::Provide => {
             let docker_dir = model_config
                 .container

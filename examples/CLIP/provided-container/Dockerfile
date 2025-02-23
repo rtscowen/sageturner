@@ -29,6 +29,7 @@ RUN pyenv global 3.12
 
 ### install python packages
 RUN pip install fastapi[standard]
+# CLIP specific packages
 RUN pip install ftfy regex tqdm
 RUN pip install git+https://github.com/openai/CLIP.git
 
@@ -38,8 +39,8 @@ ENV PYTHONDONTWRITEBYTECODE=TRUE
 ENV PATH="${PATH}:/opt/program/"
 
 ### copy serve script
-COPY serve.py /opt/program/
-WORKDIR /opt/program/
+COPY . /opt/program
+WORKDIR /opt/program
 
 ### set entrypoint; will get 'serve' as arg when started for inference. serve.py deals with 
 ENTRYPOINT [ "python", "serve.py" ]

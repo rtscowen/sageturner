@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response, status, Request
 
 import os
 from io import BytesIO
@@ -12,24 +12,26 @@ import uvicorn
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-if os.getenv("SIMPLE_SAGE_ARTIFACT_PATH"):
-    model, preprocess = clip.load(os.getenv("SIMPLE_SAGE_ARTIFACT_PATH"), device=device)
+artefact_on_sagemaker = os.path.isdir("/opt/ml/model") and os.listdir("/opt/ml/model")
+if artefact_on_sagemaker:
+    model, preprocess = clip.load("/opt/ml/model/ViT-B-32.pt", device=device)
 else:
     model, preprocess = clip.load("ViT-B/32", device=device)
 
 
 app = FastAPI()
 
-@app.post('/ping')
-def ping():
+@app.get('/ping')
+async def ping():
     if model: 
-        return 
+        return Response(status_code=status.HTTP_200_OK)
     else:
         raise HTTPException(status_code=500, detail="Error")
 
 @app.post('/invocations')
-def predict(request):
-    image = preprocess(Image.open(BytesIO(base64.b64decode(request.image)))).unsqueeze(0).to(device)
+async def predict(request: Request):
+    body =  await request.json()
+    image = preprocess(Image.open(BytesIO(base64.b64decode(body["image"])))).unsqueeze(0).to(device)
     text = clip.tokenize(["a diagram", "a dog", "a beanbag"]).to(device)
 
     with torch.no_grad():
@@ -44,7 +46,7 @@ def predict(request):
     }
 
 if __name__ == "__main__":
-    config = uvicorn.Config("serve:app", port=8080)
+    config = uvicorn.Config("serve:app", port=8080, host="0.0.0.0")
     server = uvicorn.Server(config=config)
     server.run()
 

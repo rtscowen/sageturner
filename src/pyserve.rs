@@ -3,7 +3,7 @@
 pub fn get_serve_code() -> String {
     
     let serve_code = r#"import sageturner
-from fastapi import FastAPI, Request, Response, status
+from fastapi import FastAPI, Request, Response, status, HTTPException
 import uvicorn
 model = sageturner.load()
 app = FastAPI()

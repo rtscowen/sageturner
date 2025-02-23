@@ -1,27 +1,40 @@
+# The name of the model
 name: sageturner-resnet-50
-artefact: /workspaces/python-2/simplesage/examples/resnet-50/artefact/pytorch_model.bin.tar.gz
+# Path to model artefact. Sageturner puts this on your bucket, and tells Sagemaker to make it available at /opt/ml
+artefact: ./artefact/pytorch_model.bin.tar.gz
 container: 
+# Where interesting things happen. fill out the below fields and sageturner will try to make you a sensible container 
   generate_container: 
-    code_dir: /workspaces/python-2/simplesage/examples/resnet-50/generate-container
+    # directory containing sageturner.py with load() and generate() function, check out the example in the directory to understand the signatures required
+    # everything in the directory is copied to the generated container, but you MUST call the load and predict file sageturner.py, or the tool will
+    # complain at you
+
+    ## All the fields can be empty except code_dir. Sageturner has good validation and will complain at you appropriately. 
+    code_dir: ./generate-container
+     # extra system packages to apt-get install, blank as we don't want any
     system_packages: 
-    # No extra system packages
     python_packages: 
     # Packages to be Pip installed, and any extra args. This package set is suitable for a CPU only deploy
       - --extra-index-url https://download.pytorch.org/whl/cpu transformers[torch]
       - pillow 
     install_cuda: false # Don't install Cuda Toolkit on the container
+    # change the python version if you wan't 
     python_version: 3.12
   provide_container: 
+  # provide directory for your own container
     docker_dir: ./provided-container
 compute: 
+  # serverless compute options
   serverless: 
     memory: 3072
     provisioned_concurrency: 1
     max_concurrency: 2
+  # provisioned compute options
   server:
     instance_type: ml.m5.xlarge 
     initial_instance_count: 1
 overrides: 
-  # If you used different role/bucket to the defaults created by setup, create them here
+  # If you used different role/bucket to the defaults created by setup, create them here and
+  # sageturner will use them instead
   # role_name: sageturner-role
   # bucket_name: sageturner-override

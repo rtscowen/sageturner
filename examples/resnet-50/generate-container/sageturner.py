@@ -8,12 +8,6 @@ from transformers import AutoImageProcessor, ResNetForImageClassification
 
 # Don't change the signatures !!
 def load():
-    # This load function assumes you provided a .tar.gz compressed artefact in your sageturner.yaml. If you did, 
-    # Sagemaker makes the uncompressed tar.gz available at /opt/ml/model
-    # If you don't provide an artefact, your load function will look different. I'd suggest you write it in a way
-    # that lets you test the script locally and emulate the live from (see the if __main__ section). It either needs
-    # to work the same on sagemaker and locally, or you need some way of distinguishing the cases
-    # analogous to the artefact_on_sagemaker var below
 
     # artefact_on_sagemaker disitnguishes whether the code is running on Sagemaker or locally 
     artefact_on_sagemaker = os.path.isdir("/opt/ml/model") and os.listdir("/opt/ml/model")
