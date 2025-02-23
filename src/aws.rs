@@ -199,7 +199,6 @@ pub async fn create_server_endpoint(
     model_name: &str,
     instance_type: &str,
     initial_instance_count: i32,
-    execution_role_arn: &str,
     sage_client: &aws_sdk_sagemaker::Client,
     deploy_timestamp: &str
 ) -> Result<()> {

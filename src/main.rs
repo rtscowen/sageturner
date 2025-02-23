@@ -356,7 +356,6 @@ async fn process_deploy(
                 &final_model_name,
                 &instance_type,
                 initial_instance_count,
-                &execution_role_arn,
                 sage_client,
                 &deploy_timestamp
             )
