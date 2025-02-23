@@ -11,7 +11,6 @@ use aws_sdk_sagemaker::types::{
 use aws_sdk_iam::client::Waiters as iam_waiters;
 use base64::prelude::*;
 use bollard::auth::DockerCredentials;
-use chrono::Utc;
 
 pub async fn get_role_arn(role_name: &str, client: &aws_sdk_iam::Client) -> Result<String> {
     match client.get_role().role_name(role_name).send().await {
@@ -123,6 +122,7 @@ pub async fn create_sagemaker_model(
     container_image: &str,
     sage_client: &aws_sdk_sagemaker::Client,
     model_data_url: Option<String>,
+    deploy_timestamp: &str
 ) -> Result<String> {
     let container = match model_data_url {
         Some(u) => {
@@ -138,8 +138,7 @@ pub async fn create_sagemaker_model(
         }
     };
 
-    let utc_now = Utc::now().format("%d/%m/%Y%H:%M").to_string();
-    let model_name_plus_timestamp = model_name.to_string() + &utc_now;
+    let model_name_plus_timestamp = model_name.to_string() + &deploy_timestamp;
     sage_client
         .create_model()
         .set_model_name(Some(model_name_plus_timestamp.clone()))
@@ -151,13 +150,16 @@ pub async fn create_sagemaker_model(
 }
 
 pub async fn create_serverless_endpoint(
-    endpoint_name: &str,
     model_name: &str,
     memory_size: i32,
     max_concurrency: i32,
     provisioned_concurrency: i32,
     sage_client: &aws_sdk_sagemaker::Client,
+    deploy_timestamp: &str
 ) -> Result<()> {
+    let endpoint_name = format!("{}-{}", model_name, deploy_timestamp);
+    let endpoint_config_name = format!("{}-{}", model_name, deploy_timestamp);
+
     println!(
         "Creating serverless endpoint {}. Might take a few mins.",
         endpoint_name
@@ -174,8 +176,6 @@ pub async fn create_serverless_endpoint(
         .serverless_config(serverless_config)
         .build();
 
-    let endpoint_config_name = format!("{}-config", endpoint_name);
-
     sage_client
         .create_endpoint_config()
         .endpoint_config_name(&endpoint_config_name)
@@ -191,20 +191,20 @@ pub async fn create_serverless_endpoint(
         .await?;
 
     println!(
-        "Serverless endpoint {} created successfully. It may take a few mins to go live.",
-        endpoint_name
-    );
+        "Serverless endpoint created successfully. It may take a few mins to go live. Check AWS console.");
     Ok(())
 }
 
 pub async fn create_server_endpoint(
-    endpoint_name: &str,
     model_name: &str,
     instance_type: &str,
     initial_instance_count: i32,
     execution_role_arn: &str,
     sage_client: &aws_sdk_sagemaker::Client,
+    deploy_timestamp: &str
 ) -> Result<()> {
+    let endpoint_config_name = format!("{}-{}", model_name, deploy_timestamp);
+    let endpoint_name = format!("{}-{}", model_name, deploy_timestamp);
     println!(
         "Creating server endpoint {}. Might take a few mins.",
         endpoint_name
@@ -216,7 +216,7 @@ pub async fn create_server_endpoint(
         .initial_instance_count(initial_instance_count)
         .build();
 
-    let endpoint_config_name = format!("{}-config", endpoint_name);
+    
 
     sage_client
         .create_endpoint_config()
@@ -226,6 +226,7 @@ pub async fn create_server_endpoint(
         .send()
         .await?;
 
+    
     sage_client
         .create_endpoint()
         .endpoint_name(endpoint_name)
@@ -234,9 +235,7 @@ pub async fn create_server_endpoint(
         .await?;
 
     println!(
-        "Server endpoint {} created successfully. It may take a few mins to go live.",
-        endpoint_name
-    );
+        "Server endpoint created successfully. It may take a few mins to go live. Check AWS Console.");
     Ok(())
 }
 

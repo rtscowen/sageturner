@@ -114,7 +114,7 @@ pub async fn build_image_ez_mode(
     builder.append_dir_all("", code_location_abs)?; // get everything in the code dir
 
     // also append the generated serve file and Dockerfile 
-    let mut python_file = File::open(&docker_path)?;
+    let mut python_file = File::open(&python_path)?;
     let mut docker_file = File::open(&docker_path)?;
     builder.append_file("serve.py", &mut python_file)?;
     builder.append_file("Dockerfile", &mut docker_file)?;
@@ -220,7 +220,6 @@ pub async fn push_image(
         match stream {
             Ok(p) => {
                 println!("{:?}", p.progress.unwrap_or_default());
-                // println!("Progress: {}", p.progress.unwrap_or_default());
             },
             Err(e) => {
                 return Err(anyhow!("Docker push error: {}", e.to_string()))

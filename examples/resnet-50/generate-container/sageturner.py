@@ -20,7 +20,7 @@ def load():
     if artefact_on_sagemaker: 
         artefact_path = "/opt/ml/model"
     else:
-        artefact_path = "../artefact"
+        artefact_path = "./artefact"
 
     model = ResNetForImageClassification.from_pretrained(local_files_only=True, config="config.json", pretrained_model_name_or_path=artefact_path)
     return model

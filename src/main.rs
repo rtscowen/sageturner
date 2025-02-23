@@ -175,6 +175,7 @@ async fn process_deploy(
     );
 
     let config_dir = Path::new(&deploy_params.config_path).parent().expect("Your config path didn't point to a YAML file");
+    let deploy_timestamp = Utc::now().format("%d%m%Y%H%M").to_string();
 
     // TODO - unclone this
     let model_config = model_config::parse_config(deploy_params.config_path.clone().into())?;
@@ -278,10 +279,9 @@ async fn process_deploy(
     // Upload a model artefact if we have it
     match model_config.artefact {
         Some(a) => {
-            let utc_now = Utc::now().format("%d/%m/%Y%H:%M").to_string();
             let path = Path::new(&a);
             let a_name = path.file_name().ok_or_else(|| anyhow!("Couldn't extract filename from artefact path"))?;
-            let s3_key = format!("{}/{}/{}", &model_config.name, utc_now, a_name.to_str().unwrap());
+            let s3_key = format!("{}/{}/{}", &model_config.name, deploy_timestamp, a_name.to_str().unwrap());
             let s3_path = aws::upload_artefact(&a, &bucket_name, &s3_key, s3_client, config_dir).await?;
             final_model_name = aws::create_sagemaker_model(
                 &model_config.name,
@@ -289,6 +289,7 @@ async fn process_deploy(
                 &uri,
                 sage_client,
                 Some(s3_path),
+                &deploy_timestamp
             )
             .await?;
         }
@@ -300,12 +301,12 @@ async fn process_deploy(
                 &uri,
                 sage_client,
                 None,
+                &deploy_timestamp
             )
             .await?;
         }
     }
 
-    let endpoint_name = format!("{}-sageturner-endpoint", &model_config.name);
     match deploy_params.endpoint_type {
         EndpointType::Serverless => {
             let memory = model_config
@@ -327,12 +328,12 @@ async fn process_deploy(
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .provisioned_concurrency;
             aws::create_serverless_endpoint(
-                &endpoint_name,
                 &final_model_name,
                 memory,
                 max_concurrency,
                 provisioned_concurrency,
                 sage_client,
+                &deploy_timestamp
             )
             .await?;
         }
@@ -351,12 +352,12 @@ async fn process_deploy(
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .initial_instance_count;
             aws::create_server_endpoint(
-                &endpoint_name,
                 &final_model_name,
                 &instance_type,
                 initial_instance_count,
                 &execution_role_arn,
                 sage_client,
+                &deploy_timestamp
             )
             .await?;
         }
