@@ -1,4 +1,5 @@
-use std::path::{Path, absolute};
+use std::path::absolute;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
