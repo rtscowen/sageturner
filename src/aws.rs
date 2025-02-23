@@ -138,7 +138,7 @@ pub async fn create_sagemaker_model(
         }
     };
 
-    let model_name_plus_timestamp = model_name.to_string() + &deploy_timestamp;
+    let model_name_plus_timestamp = model_name.to_string() + deploy_timestamp;
     sage_client
         .create_model()
         .set_model_name(Some(model_name_plus_timestamp.clone()))
