@@ -1,4 +1,4 @@
-use std::path::{self, Path, PathBuf, absolute};
+use std::path::{Path, absolute};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
@@ -18,11 +18,11 @@ pub async fn get_role_arn(role_name: &str, client: &aws_sdk_iam::Client) -> Resu
             match r.role() {
                 Some(r) => Ok(r.arn.clone()),
                 None => {
-                    return Err(anyhow!("Error getting role ARN"))
+                    Err(anyhow!("Error getting role ARN"))
                 },
             }
         },
-        Err(e) => return Err(anyhow!("Error getting role ARN: {}", e)),
+        Err(e) => Err(anyhow!("Error getting role ARN: {}", e)),
     }
 
 }
@@ -70,10 +70,7 @@ pub async fn create_sagemaker_role(
 pub async fn create_sagemaker_bucket(bucket_name: &str, client: &aws_sdk_s3::Client) -> Result<()> {
     println!("bucket: {}", bucket_name);
     println!("Checking if bucket already exists");
-    let already_exists = match client.head_bucket().bucket(bucket_name).send().await {
-        Ok(_) => true,
-        Err(_) => false,
-    };
+    let already_exists = client.head_bucket().bucket(bucket_name).send().await.is_ok();
 
     if !already_exists {
         println!("Creating bucket");

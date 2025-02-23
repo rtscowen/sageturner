@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use argh::FromArgs;
 use aws_config::timeout::TimeoutConfig;
 use bollard::Docker;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 
 mod aws;

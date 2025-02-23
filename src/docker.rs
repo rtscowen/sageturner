@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{Read, Seek, Write}, path::{Path, absolute},
+    io::{Read, Write}, path::{Path, absolute},
 };
 
 use anyhow::{anyhow, Result};
@@ -223,9 +223,7 @@ pub async fn push_image(
                 // println!("Progress: {}", p.progress.unwrap_or_default());
             },
             Err(e) => {
-                match e {
-                    _ => return Err(anyhow!("Docker push error: {}", e.to_string()))
-                }
+                return Err(anyhow!("Docker push error: {}", e.to_string()))
             },
         }
     }
