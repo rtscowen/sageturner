@@ -1,14 +1,16 @@
-use std::path::Path;
+use std::path::{self, Path, PathBuf, absolute};
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::client::Waiters;
 use aws_sdk_sagemaker::types::{
-    ContainerDefinition, KendraSettings, ProductionVariant, ProductionVariantServerlessConfig
+    ContainerDefinition, ProductionVariant, ProductionVariantServerlessConfig
 };
+use aws_sdk_iam::client::Waiters as iam_waiters;
 use base64::prelude::*;
 use bollard::auth::DockerCredentials;
+use chrono::Utc;
 
 pub async fn get_role_arn(role_name: &str, client: &aws_sdk_iam::Client) -> Result<String> {
     match client.get_role().role_name(role_name).send().await {
@@ -22,6 +24,7 @@ pub async fn get_role_arn(role_name: &str, client: &aws_sdk_iam::Client) -> Resu
         },
         Err(e) => return Err(anyhow!("Error getting role ARN: {}", e)),
     }
+
 }
 
 pub async fn create_sagemaker_role(
@@ -49,6 +52,9 @@ pub async fn create_sagemaker_role(
         .send()
         .await?;
 
+    println!("Waiting for role to be created...");
+    client.wait_until_role_exists().role_name(role_name).wait(Duration::from_secs(10)).await?;
+
     println!("Attaching policy");
     client
         .attach_role_policy()
@@ -56,6 +62,7 @@ pub async fn create_sagemaker_role(
         .policy_arn("arn:aws:iam::aws:policy/AmazonSageMakerFullAccess")
         .send()
         .await?;
+
     println!("Role created");
     Ok(())
 }
@@ -118,7 +125,7 @@ pub async fn create_sagemaker_model(
     container_image: &str,
     sage_client: &aws_sdk_sagemaker::Client,
     model_data_url: Option<String>,
-) -> Result<()> {
+) -> Result<String> {
     let container = match model_data_url {
         Some(u) => {
             ContainerDefinition::builder()
@@ -133,14 +140,16 @@ pub async fn create_sagemaker_model(
         }
     };
 
+    let utc_now = Utc::now().format("%d/%m/%Y%H:%M").to_string();
+    let model_name_plus_timestamp = model_name.to_string() + &utc_now;
     sage_client
         .create_model()
-        .set_model_name(Some(model_name.to_string()))
+        .set_model_name(Some(model_name_plus_timestamp.clone()))
         .set_execution_role_arn(Some(execution_role_arn.to_string()))
         .set_primary_container(Some(container))
         .send()
         .await?;
-    Ok(())
+    Ok(model_name_plus_timestamp)
 }
 
 pub async fn create_serverless_endpoint(
@@ -149,7 +158,6 @@ pub async fn create_serverless_endpoint(
     memory_size: i32,
     max_concurrency: i32,
     provisioned_concurrency: i32,
-    execution_role_arn: &str,
     sage_client: &aws_sdk_sagemaker::Client,
 ) -> Result<()> {
     println!(
@@ -239,12 +247,16 @@ pub async fn upload_artefact(
     bucket_name: &str,
     s3_key: &str,
     s3_client: &aws_sdk_s3::Client,
+    config_path: &Path
 ) -> Result<String> {
     println!("Uploading file {} to bucket {} with key {}", object_path, bucket_name, s3_key);
-    if !is_tar_gz(object_path) {
+    let artefact_path = Path::new(config_path).join(object_path);
+    let arefact_path_abs = absolute(artefact_path)?;
+    if !is_tar_gz(&arefact_path_abs) {
         return Err(anyhow!("Artefact needs to be a .tar.gz file (ask perplexity how to create one, if you're not sure"));
     }
-    let body = ByteStream::from_path(Path::new(object_path)).await?;
+    println!("{:?}", &arefact_path_abs);
+    let body = ByteStream::from_path(arefact_path_abs).await?;
     s3_client
         .put_object()
         .bucket(bucket_name)
@@ -263,8 +275,8 @@ pub async fn upload_artefact(
     Ok(s3_path)
 }
 
-fn is_tar_gz(file_path: &str) -> bool {
-    Path::new(file_path)
+fn is_tar_gz(file_path: &Path) -> bool {
+    file_path
         .extension()
         .is_some_and(|ext| ext == "gz")
         && Path::new(file_path)

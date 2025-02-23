@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read, path::PathBuf};
+use std::{fs::File, io::Read, path::{Path, PathBuf, absolute}};
 
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
@@ -33,9 +33,10 @@ pub struct Container {
 
 #[derive(Debug, Deserialize)]
 pub struct GenerateContainerConfig {
-    // A path to a Python script containing a load() and predict() function. We call these functions from a
-    // template serve.py file. T
-    pub code: String,
+    // A path to a directory containing a sageturner.py file. 
+    // the sageturner.py file, and the rest of the contents of the directory,
+    // will be copied into the container 
+    pub code_dir: String,
     // Optional additional system packages to install to container 
     pub system_packages: Option<Vec<String>>,
     // Optional python packages to install to container 
@@ -113,6 +114,7 @@ pub fn validate_config(
     mc: &ModelConfig,
     endpoint_type: &EndpointType,
     container_mode: &ContainerMode,
+    config_dir: &Path
 ) -> Result<()> {
     println!("Validating config file");
     if mc.name.is_empty() {
@@ -149,9 +151,21 @@ pub fn validate_config(
                 .container
                 .generate_container
                 .as_ref()
-                .is_some_and(|s| s.code.is_empty())
+                .is_some_and(|s| s.code_dir.is_empty())
             {
                 return Err(anyhow!("Invalid sageturner config: you're trying to deploy in generate container mode, but your code field is an empty string. Needs to be path to code with load() and predict()"));
+            }
+            if let Some(c) = mc.container.generate_container.as_ref() {
+                // check that codedir is a directory, and contains a sageturner.py file at minimum
+                let config_path = config_dir.join(&c.code_dir);
+                let abs_path = absolute(config_path)?;
+                let abs_path = abs_path.as_path();
+                if !abs_path.is_dir() {
+                    return Err(anyhow!("Invalid sageturner config: your code_dir was not a valid directory: {}", abs_path.display()));
+                }
+                if !abs_path.join("sageturner.py").exists() {
+                    return Err(anyhow!("Invalid sageturner config: your code_dir did not contain a sageturner.py file. Please add one with a load() and predict() method. Code dir: {}", abs_path.display()));
+                }
             }
         }
     }

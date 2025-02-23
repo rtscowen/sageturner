@@ -2,7 +2,7 @@ name: sageturner-resnet-50
 artefact: /workspaces/python-2/simplesage/examples/resnet-50/artefact/pytorch_model.bin.tar.gz
 container: 
   generate_container: 
-    code: /workspaces/python-2/simplesage/examples/resnet-50/generate-container
+    code_dir: /workspaces/python-2/simplesage/examples/resnet-50/generate-container
     system_packages: 
     # No extra system packages
     python_packages: 
@@ -25,13 +25,5 @@ compute:
     instance_type: m5.xlarge 
     initial_instance_count: 1
 overrides: 
-  # In this case, we give the arn of a role called sageturner-role, instead of the default 
-  # sageturner-role-sagemaker created by running sageturner setup
-  role_arn: arn:aws:iam::043309324922:role/sageturner-role
-
-  # we comment out the line below, indicating we want to use the sageturner setup default
-  # name of sageturner-sagemaker-models
-  # Remember: if you use a different bucket, it needs to have sagemaker in the name, so that 
-  # the execution role policy applies to it
-
-  ##### bucket_name: sageturner-override
+  role_name: sageturner-role
+  bucket_name: sageturner-override

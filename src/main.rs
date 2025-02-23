@@ -174,12 +174,15 @@ async fn process_deploy(
         &deploy_params.config_path, &deploy_params.endpoint_type, &deploy_params.mode
     );
 
+    let config_dir = Path::new(&deploy_params.config_path).parent().expect("Your config path didn't point to a YAML file");
+
     // TODO - unclone this
     let model_config = model_config::parse_config(deploy_params.config_path.clone().into())?;
     model_config::validate_config(
         &model_config,
         &deploy_params.endpoint_type,
         &deploy_params.mode,
+        config_dir
     )?;
 
     // Generate dockerfile & build, or build the supplied dockerfile
@@ -192,7 +195,7 @@ async fn process_deploy(
                     anyhow!("Something went wrong with our validation. Raise an issue.")
                 })?
                 .docker_dir;
-            docker::build_image_byo(&docker_dir, docker_client, &model_config.name).await?;
+            docker::build_image_byo(Path::new(&docker_dir), docker_client, &model_config.name, config_dir).await?;
         }
         ContainerMode::Generate => {
             let code_location = &model_config
@@ -200,7 +203,7 @@ async fn process_deploy(
                 .generate_container
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
-                .code.as_str();
+                .code_dir.as_str();
             let python_packages = &model_config
                 .container
                 .generate_container
@@ -213,7 +216,7 @@ async fn process_deploy(
                 .as_ref()
                 .ok_or_else(|| anyhow!("Something went wrong with our validation. Raise an issue"))?
                 .system_packages;
-            let serve_code = pyserve::get_serve_code(code_location);
+            let serve_code = pyserve::get_serve_code();
             let gpu = model_config
                 .container
                 .generate_container
@@ -244,7 +247,8 @@ async fn process_deploy(
                 &serve_code,
                 docker_client,
                 &python_version,
-                code_location // TODO fix this unecessary auto deref 
+                code_location, // TODO fix this unecessary auto deref,
+                config_dir
             )
             .await?;
         }
@@ -254,7 +258,7 @@ async fn process_deploy(
     let uri = format!("{repo_endpoint}:latest");
 
     let mut bucket_name = DEFAULT_BUCKET_NAME.to_string();
-    let mut execution_role_arn = "".to_string();
+    let mut execution_role_name = DEFAULT_ROLE_NAME.to_string();
 
     // TODO - unclone this
     if let Some(o) = model_config.overrides {
@@ -265,12 +269,12 @@ async fn process_deploy(
         
         if let Some(r) = o.role_arn { 
             println!("Overriding default role name with: {}", r);
-            execution_role_arn = r.clone();
-        } else {
-            execution_role_arn = aws::get_role_arn(DEFAULT_BUCKET_NAME, iam_client).await?;
+            execution_role_name = r.clone();
         }
     }
 
+    let execution_role_arn = aws::get_role_arn(&execution_role_name, iam_client).await?;
+    let final_model_name: String;
     // Upload a model artefact if we have it
     match model_config.artefact {
         Some(a) => {
@@ -278,8 +282,8 @@ async fn process_deploy(
             let path = Path::new(&a);
             let a_name = path.file_name().ok_or_else(|| anyhow!("Couldn't extract filename from artefact path"))?;
             let s3_key = format!("{}/{}/{}", &model_config.name, utc_now, a_name.to_str().unwrap());
-            let s3_path = aws::upload_artefact(&a, &bucket_name, &s3_key, s3_client).await?;
-            aws::create_sagemaker_model(
+            let s3_path = aws::upload_artefact(&a, &bucket_name, &s3_key, s3_client, config_dir).await?;
+            final_model_name = aws::create_sagemaker_model(
                 &model_config.name,
                 &execution_role_arn,
                 &uri,
@@ -290,7 +294,7 @@ async fn process_deploy(
         }
         None => {
             // No artefact to put on S3
-            aws::create_sagemaker_model(
+            final_model_name = aws::create_sagemaker_model(
                 &model_config.name,
                 &execution_role_arn,
                 &uri,
@@ -324,11 +328,10 @@ async fn process_deploy(
                 .provisioned_concurrency;
             aws::create_serverless_endpoint(
                 &endpoint_name,
-                &model_config.name,
+                &final_model_name,
                 memory,
                 max_concurrency,
                 provisioned_concurrency,
-                &execution_role_arn,
                 sage_client,
             )
             .await?;
@@ -349,7 +352,7 @@ async fn process_deploy(
                 .initial_instance_count;
             aws::create_server_endpoint(
                 &endpoint_name,
-                &model_config.name,
+                &final_model_name,
                 &instance_type,
                 initial_instance_count,
                 &execution_role_arn,

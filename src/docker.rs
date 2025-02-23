@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fs::File,
-    io::{Read, Seek, Write},
+    io::{Read, Seek, Write}, path::{Path, absolute},
 };
 
 use anyhow::{anyhow, Result};
@@ -22,14 +22,20 @@ pub async fn get_client() -> Docker {
     Docker::connect_with_socket_defaults().unwrap()
 }
 
-pub async fn build_image_byo(path: &str, docker: &Docker, repo_name: &str) -> Result<()> {
-    println!("Building your docker image at {path}, as {repo_name}:latest");
+pub async fn build_image_byo(docker_dir_path: &Path, docker: &Docker, repo_name: &str, config_path: &Path) -> Result<()> {
+    println!("Building your docker image at {}, as {repo_name}:latest", docker_dir_path.display());
+
+    // absolutize path correctly - TODO fix this horrible reassignment
+    let docker_dir_path_abs = config_path.join(docker_dir_path);
+    let docker_dir_path_abs = absolute(docker_dir_path_abs)?;
+    let docker_dir_path_abs = docker_dir_path_abs.as_path();
+
     let temp_dir = tempdir()?;
 
     let tar_path = temp_dir.path().join("archive_byo.tar");
     let tar_file = File::create(&tar_path).unwrap();
     let mut builder = Builder::new(tar_file);
-    builder.append_dir_all("", path).unwrap();
+    builder.append_dir_all("", docker_dir_path_abs).unwrap();
     builder.finish().unwrap();
 
     let mut archive = File::open(tar_path).unwrap();
@@ -73,7 +79,8 @@ pub async fn build_image_ez_mode(
     serve_code: &str,
     docker_client: &Docker,
     python_version: &str,
-    code_location: &str
+    code_location: &str,
+    config_path: &Path
 ) -> Result<()> {
     println!("Building dynamically generated image, with \nPython packages: {} \nsystem packages {}\nand your serve code", extra_python, extra_system);
     let dockerfile_contents = if gpu {
@@ -84,10 +91,19 @@ pub async fn build_image_ez_mode(
 
     let tempdir = tempdir()?;
 
+    // Absolutize code location properly
+    let code_loc_path = config_path.join(code_location);
+    let code_location_abs = absolute(code_loc_path)?;
+    let code_location_abs = code_location_abs.as_path();
+
+    // Write dockerfile from contents
     let docker_path = tempdir.path().join("Dockerfile");
     let mut docker_file = File::create(&docker_path)?;
     docker_file.write_all(dockerfile_contents.as_bytes())?;
 
+    // Write serve.py - the FastAPI server - from contents
+    // expects a file called sageturner.py so it can call 
+    // import sageturner
     let python_path = tempdir.path().join("serve.py");
     let mut python_file = File::create(&python_path)?;
     python_file.write_all(serve_code.as_bytes())?;
@@ -95,12 +111,14 @@ pub async fn build_image_ez_mode(
     let tar_path = tempdir.path().join("archive_ez.tar");
     let tar_file = File::create(&tar_path)?;
     let mut builder = Builder::new(tar_file);
-    builder.append_dir_all("", code_location)?; // get everything in the code dir
+    builder.append_dir_all("", code_location_abs)?; // get everything in the code dir
+
     // also append the generated serve file and Dockerfile 
     let mut python_file = File::open(&docker_path)?;
     let mut docker_file = File::open(&docker_path)?;
     builder.append_file("serve.py", &mut python_file)?;
     builder.append_file("Dockerfile", &mut docker_file)?;
+
     builder.finish()?;
 
     let mut archive = File::open(tar_path)?;
@@ -201,7 +219,7 @@ pub async fn push_image(
     while let Some(stream) = push_stream.next().await {
         match stream {
             Ok(p) => {
-                println!("{:?}", p);
+                println!("{:?}", p.progress.unwrap_or_default());
                 // println!("Progress: {}", p.progress.unwrap_or_default());
             },
             Err(e) => {
@@ -232,8 +250,6 @@ fn cpu_dockerfile() -> String {
     RUN curl https://pyenv.run | bash
     ENV PYENV_ROOT=${HOME}/.pyenv
     ENV PATH=${PYENV_ROOT}/shims:${PYENV_ROOT}/bin:$PATH
-    RUN echo $PATH
-    RUN ls -al $PYENV_ROOT
 
     RUN pyenv install ${PYTHON_VERSION}
     RUN pyenv global ${PYTHON_VERSION}
@@ -245,7 +261,7 @@ fn cpu_dockerfile() -> String {
     RUN pip install fastapi[standard]
 
     # Install extra python packages 
-    RUN if [ "${EXTRA_PYTHON_PACKAGES}" != "" ]; then pip install ${EXTRA_PYTHON_PACKAGES}; fi
+    RUN if [ "${EXTRA_PYTHON_PACKAGES}" != "" ]; then pip install --no-input ${EXTRA_PYTHON_PACKAGES}; fi
 
     ENV PYTHONUNBUFFERED=TRUE
     ENV PYTHONDONTWRITEBYTECODE=TRUE
@@ -289,17 +305,13 @@ fn gpu_dockerfile() -> String {
     RUN pyenv global ${PYTHON_VERSION}
 
     # Install extra system packages
-    RUN if [ ${EXTRA_SYSTEM_PACKAGES} != "" ]; then \
-            apt-get -y install --no-install-recommends ${EXTRA_SYSTEM_PACKAGES} \
-        fi
+    RUN if [ "${EXTRA_SYSTEM_PACKAGES}" != "" ]; then apt-get -y install --no-install-recommends ${EXTRA_SYSTEM_PACKAGES}; fi
 
     # Install FastAPI as standard 
     RUN pip install fastapi[standard]
 
     # Install extra python packages 
-    RUN if [ ${EXTRA_PYTHON_PACKAGES} != "" ]; then \
-            pip install --no-input ${EXTRA_PYTHON_PACKAGES} \
-        fi
+    RUN if [ "${EXTRA_PYTHON_PACKAGES}" != "" ]; then pip install --no-input ${EXTRA_PYTHON_PACKAGES}; fi
 
     ENV PYTHONUNBUFFERED=TRUE
     ENV PYTHONDONTWRITEBYTECODE=TRUE
