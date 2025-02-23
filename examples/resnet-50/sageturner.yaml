@@ -18,7 +18,7 @@ container:
     docker_dir: ./provided-container
 compute: 
   serverless: 
-    memory: 1024
+    memory: 6144
     provisioned_concurrency: 1
     max_concurrency: 10
   server:

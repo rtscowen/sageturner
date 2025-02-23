@@ -1,9 +1,11 @@
-use std::{path::Path, str::FromStr};
+use std::{path::Path, str::FromStr, time::Duration};
 
 use anyhow::{anyhow, Result};
 use argh::FromArgs;
+use aws_config::timeout::TimeoutConfig;
 use bollard::Docker;
 use chrono::{DateTime, Utc};
+
 
 mod aws;
 mod docker;
@@ -49,7 +51,7 @@ struct Deploy {
     mode: ContainerMode,
 
     #[argh(option, short = 'c', description = "path to config YAML")]
-    model_config: String,
+    config_path: String,
 }
 
 #[derive(Debug, PartialEq)]
@@ -124,7 +126,9 @@ struct Setup {}
 async fn main() -> Result<()> {
     let cmd: SageturnerCLI = argh::from_env();
 
-    let config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest()).timeout_config(TimeoutConfig::builder()
+    .connect_timeout(Duration::from_secs(8))
+    .build()).load().await;
     let sage_client = aws_sdk_sagemaker::Client::new(&config);
     let ecr_client = aws_sdk_ecr::Client::new(&config);
     let iam_client = aws_sdk_iam::Client::new(&config);
@@ -167,11 +171,11 @@ async fn process_deploy(
 ) -> Result<()> {
     println!(
         "Deploying model with config at {} to {} endpoint, {} container mode",
-        &deploy_params.model_config, &deploy_params.endpoint_type, &deploy_params.mode
+        &deploy_params.config_path, &deploy_params.endpoint_type, &deploy_params.mode
     );
 
     // TODO - unclone this
-    let model_config = model_config::parse_config(deploy_params.model_config.clone().into())?;
+    let model_config = model_config::parse_config(deploy_params.config_path.clone().into())?;
     model_config::validate_config(
         &model_config,
         &deploy_params.endpoint_type,

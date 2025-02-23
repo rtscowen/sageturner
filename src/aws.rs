@@ -256,7 +256,7 @@ pub async fn upload_artefact(
     s3_client.wait_until_object_exists()
         .bucket(bucket_name)
         .key(s3_key)
-        .wait(Duration::from_secs(5))
+        .wait(Duration::from_secs(8))
         .await?;
 
     let s3_path = format!("s3://{}/{}", bucket_name, s3_key);
