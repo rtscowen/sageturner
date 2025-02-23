@@ -283,6 +283,7 @@ async fn process_deploy(
             let a_name = path.file_name().ok_or_else(|| anyhow!("Couldn't extract filename from artefact path"))?;
             let s3_key = format!("{}/{}/{}", &model_config.name, deploy_timestamp, a_name.to_str().unwrap());
             let s3_path = aws::upload_artefact(&a, &bucket_name, &s3_key, s3_client, config_dir).await?;
+            println!("S3 PATH PASSED AS model_data_url: {}", s3_path);
             final_model_name = aws::create_sagemaker_model(
                 &model_config.name,
                 &execution_role_arn,

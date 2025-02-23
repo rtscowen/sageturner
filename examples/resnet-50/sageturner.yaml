@@ -22,7 +22,7 @@ compute:
     provisioned_concurrency: 1
     max_concurrency: 2
   server:
-    instance_type: m5.xlarge 
+    instance_type: ml.m5.xlarge 
     initial_instance_count: 1
 overrides: 
   # role_name: sageturner-role

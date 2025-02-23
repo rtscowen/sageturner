@@ -3,14 +3,14 @@
 pub fn get_serve_code() -> String {
     
     let serve_code = r#"import sageturner
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response, status
 import uvicorn
 model = sageturner.load()
 app = FastAPI()
-@app.post('/ping')
+@app.get('/ping')
 async def ping():
     if model: 
-        return 
+        return Response(status_code=status.HTTP_200_OK)
     else:
         raise HTTPException(status_code=500, detail="Error")
 @app.post('/invocations')

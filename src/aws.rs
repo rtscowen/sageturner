@@ -222,7 +222,6 @@ pub async fn create_server_endpoint(
         .create_endpoint_config()
         .endpoint_config_name(&endpoint_config_name)
         .production_variants(production_variant)
-        .execution_role_arn(execution_role_arn)
         .send()
         .await?;
 

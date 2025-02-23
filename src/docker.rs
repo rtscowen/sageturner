@@ -262,11 +262,11 @@ fn cpu_dockerfile() -> String {
 
     ENV PYTHONUNBUFFERED=TRUE
     ENV PYTHONDONTWRITEBYTECODE=TRUE
-    ENV PATH="${PATH}:/opt/program/"
+    ENV PATH="${PATH}:/opt/program"
 
-    COPY . /opt/program/
-    COPY serve.py /opt/program/
-    WORKDIR /opt/program/
+    COPY . /opt/program
+    COPY serve.py /opt/program
+    WORKDIR /opt/program
 
     ENTRYPOINT [ "python", "serve.py" ]
     "#;
@@ -312,11 +312,11 @@ fn gpu_dockerfile() -> String {
 
     ENV PYTHONUNBUFFERED=TRUE
     ENV PYTHONDONTWRITEBYTECODE=TRUE
-    ENV PATH="${PATH}:/opt/program/"
+    ENV PATH="${PATH}:/opt/program"
 
-    COPY . /opt/program/
-    COPY serve.py /opt/program/
-    WORKDIR /opt/program/
+    COPY . /opt/program
+    COPY serve.py /opt/program
+    WORKDIR /opt/program
 
     ENTRYPOINT [ "python", "serve.py" ]
     "#;
